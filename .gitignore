@@ -1,0 +1,6 @@
+**/__pycache__/**
+**/env/**
+**/django/**
+**/images/**
+db.sqlite3
+.env

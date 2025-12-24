@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payslip</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f7f8fc;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0px auto;
+            padding-inline:16px;
+            background-color: #fff;
+        }
+
+        .payslip-main-header{
+            padding-bottom: 8px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .header-payslip-section {
+            display: grid;
+            grid-template-columns : 2fr 1fr;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .paysli-header-logo{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .paysli-header-logo img {
+            width: auto;
+            height: 100px;
+            margin: 0;
+        }
+
+        .payslip-month {
+            text-align: right;
+            font-size: 14px;
+        }
+
+        .payslip-month p{
+            margin: 0;
+            padding : 0;
+            margin-block-start: 0;
+            margin-block-end: 0;
+        }
+
+        .payslip-month img{
+            
+            height : 80px;
+            width:80px;
+        }
+
+        .company-details {
+            margin-top: 20px;
+            font-size: 12px;
+        }
+
+        .companyaddress { 
+            font-size: 10px;
+        }
+
+        .company-details div {
+            padding-bottom: 10px;
+        }
+
+        .companytagline { 
+            font-size: 11px;
+        }
+
+        h3{
+            font-size:13px;
+        }
+
+        .employee-summary {
+            margin-top: 8px;
+        }
+
+        .employee-summary table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+
+        .employee-summary td {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            font-size: 11px;
+            width:max-content;
+        }
+
+
+        .income-deductions-section {
+            display: table;
+            width: 100%;
+        }
+
+        .income-details, .deductions-details {
+            display: table-cell;
+            width: 50%;
+            vertical-align: top;
+        }
+
+        .income-details table, .deductions-details table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .income-details th, .deductions-details th,
+        .income-details td, .deductions-details td {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            font-size: 11px;
+            text-align: left;
+        }
+
+        .income-details th, .deductions-details th {
+            background-color: #f1f1f1;
+            font-weight: 600;
+        }
+
+        .section-title {
+            font-weight: 600;
+            font-size: 12px;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .summary-section {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .amount-words {
+            font-size: 12px;
+            color: #777;
+            margin-top: 0px;
+        }
+
+        .auto-gen-msg {
+            text-align: center;
+            font-size: 10px;
+            color: #999;
+            margin-top: 30px;
+        }
+        .companyname{
+            font-size:13px !important;
+            font-weight:600;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header Section -->
+        <div class="payslip-main-header">
+            <div class="header-payslip-section">
+                <div class="paysli-header-logo">
+                    {% if header_logo %}
+                    <img src={{ header_logo }} alt="Company Logo">
+                    {% endif%}
+                <div>
+                <div class="companyname">{{ header_name }}</div>
+                {% if header_tagline %}<div class="companytagline">({{ header_tagline }})</div> {% endif %}
+                <div class="companyaddress">{{ header_address }}</div>
+            </div>
+                </div>
+                <div class="payslip-month">
+                    <p><strong>Payslip For the Month</strong></p>
+                    <p>{{ month }} {{ year }}</p>
+
+                    <img src="data:image/png;base64,{{ qr_code }}" alt="QR Code">
+
+
+                </div>
+            </div>
+            
+        </div>
+
+
+        <!-- Employee Pay Summary -->
+        <div class="employee-summary">
+            <h3>Employee Pay Summary</h3>
+            <table>
+                <tr>
+                    <td style="width: 20%;">Employee Name:</td>
+                    <td style="width: 30%;">
+                        {% if employee.userName %}
+                            {{ employee.userName }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="width: 25%;">Loss of Pay Days:</td>
+                    <td style="width: 25%;">
+                            {{ loss }}
+                    </td>
+                    
+                </tr>
+                <tr>
+                    <td style="width: 25%;">Employee ID:</td>
+                    <td style="width: 25%;">
+                        {% if employee.employeeid %}
+                            {{ employee.employeeid }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="width: 20%;">Present Days:</td>
+                    <td style="width: 30%;">
+                        {% if present_days %}
+                            {{ present_days }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    
+                    
+                </tr>
+                <tr>
+                    <td style="width: 25%;">Department:</td>
+                    <td style="width: 25%;">
+                        {% if employee.department %}
+                            {{ employee.department }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="width: 25%;">Bank Account No:</td>
+                    <td style="width: 25%;">
+                        {% if empbankdet.bankAcNo %}
+                            {{ empbankdet.bankAcNo }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    
+                </tr>
+                <tr>
+                    <td style="width: 20%;">Designation:</td>
+                    <td style="width: 30%;">
+                        {% if employee.designation %}
+                            {{ employee.designation }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    
+                    <td style="width: 20%;">UAN Number:</td>
+                    <td style="width: 30%;">
+                        {% if uan %}
+                            {{ uan }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+
+                    <td style="width: 20%;">Date of Joining:</td>
+                    <td style="width: 30%;">
+                        {% if employee.dateOfJoining %}
+                            {{ employee.dateOfJoining }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    
+                    <td style="width: 25%;">ESI Number:</td>
+                    <td style="width: 25%;">
+                        {% if esic %}
+                            {{ esic }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+        <h3>Income Details</h3>
+        <!-- Earnings and Deductions Side by Side -->
+        <div class="income-deductions-section">
+            <!-- Earnings Section -->
+            <div class="income-details">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Earnings</th>
+                            <th>Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Basic</td>
+                            <td>{{ basic_salary }}</td>
+                        </tr>
+                        {% if allowances %}
+                            {% for key, value in allowances.items %}
+                                <tr>
+                                    <td>{{ key }}</td>
+                                    <td>{{ value }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                        <tr>
+                            <td>Bonus</td>
+                            <td>{{ bonus }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Total Earnings</strong></td>
+                            <td><strong>₹ {{ total_earnings }}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Deductions Section -->
+            <div class="deductions-details">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Deductions</th>
+                            <th>Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Provident Fund (PF)</td>
+                            <td>{{ pf_deduction }}</td>
+                        </tr>
+                        <tr>
+                            <td>ESI</td>
+                            <td>{{ esi_deduction }}</td>
+                        </tr>
+                        <tr>
+                            <td>Professional Tax</td>
+                            <td>{{ tax_deduction }}</td>
+                        </tr>
+                        {% if leng %}
+                            {% for i in leng %}
+                                <tr>
+                                    <td>&nbsp; </td>
+                                    <td>&nbsp; </td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+
+                        <tr>
+                            <td><strong>Total Deductions</strong></td>
+                            <td><strong>₹ {{ total_deductions }}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Total Pay -->
+        <div class="summary-section">
+            <div>Total Net Payable</div>
+            <div>₹ {{ net_salary }}</div>
+        </div>
+
+        <div class="amount-words">
+            Amount in words: {{ amount_words }}
+        </div>
+
+        <!-- Auto-generated Message -->
+        <div class="auto-gen-msg">
+            <p>-- This is a system-generated payslip, verify the payslip by scanning the QR. --</p>
+        </div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;">
+            <div style="font-size:12px">Powered By: </div>
+            <img style="margin-left:-24px" src="https://gaorgsync.com/static/media/LOGO-10-black.685031e1e890028bd4d6.png" width="120px"></img>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,32 @@
+<!-- myapp/templates/myapp/employee_attendance.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Employee Attendance</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <h1 class="mt-4">Employee Attendance for July 2024</h1>
+        <table class="table table-bordered mt-4">
+            <thead>
+                <tr>
+                    <th>Employee Name</th>
+                    <th>Leaves</th>
+                    <th>Absent</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for employee in data %}
+                <tr>
+                    <td>{{ employee.employee }}</td>
+                    <td>{{ employee.leaves }}</td>
+                    <td>{{ employee.absent }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

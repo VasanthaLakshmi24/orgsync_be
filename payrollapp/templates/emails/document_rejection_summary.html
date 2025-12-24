@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Document Rejection Summary</title>
+</head>
+<body style="font-family: Arial, sans-serif; background:#f4f6f8; padding:20px;">
+  <div style="max-width:600px; background:#ffffff; padding:20px; border-radius:8px;">
+    
+    <h2 style="color:#333;">Document Rejection Summary</h2>
+
+    <p>Dear <b>{{ employee_name }}</b>,</p>
+
+    <p>The following documents require correction and re-upload:</p>
+
+    <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th align="left">Document</th>
+          <th align="left">Comment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rejected_docs %}
+        <tr>
+          <td style="border-bottom:1px solid #eee;">
+            <span style="color:red;">✖</span> {{ r.document_type|upper }}
+          </td>
+          <td style="border-bottom:1px solid #eee;">
+            {{ r.comment|default:"No comment" }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p style="margin-top:20px;">
+      Please log in to the HR portal and re-upload the corrected documents.
+    </p>
+
+    <p>
+      Regards,<br>
+      <b>{{ org_name }} HR Team</b>
+    </p>
+
+  </div>
+</body>
+</html>

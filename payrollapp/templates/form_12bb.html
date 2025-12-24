@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Form 12BB</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            line-height: 1.3;
+        }
+        .center-desc{
+            text-align:center;
+            font-size:12px;
+            margin:0;
+            margin-bottom : 8px;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            margin: 0px;
+        }
+        .form12b-title {
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 0px;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 2px;
+            font-size: 14px;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .sub-section {
+            {% comment %} padding-left:4px; {% endcomment %}
+        }
+        .verification {
+            border-top:1px solid black;
+            margin-top: 2px;
+        }
+        .verification p {
+            margin: 0px;
+        }
+        .separater-req {
+            padding-top : 8px;
+            border-bottom:1px solid black;
+        }
+        .signature {
+            display: flex;
+            justify-content: space-between;
+        }
+        .signature div {
+            width: 45%;
+        }
+        .place-det p{
+            display:flex;
+            gap:8px;
+            margin-top:8px;
+        }
+        .place-det p span{
+            border-bottom : 1px dotted black;
+            width:100%;
+        }
+        .place-sign{
+            margin-top:16px;
+            display:flex;
+            flex-direction:column;
+            justify-content : space-between;
+        }
+        .place-sign div{
+            border-bottom : 1px dotted black;
+            width:100%;
+            display:block;
+        }
+        .note{
+            font-size:10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="form12b-title">FORM NO. 12BB</div>
+        <p class="center-desc">(See rule 26C)</p>
+
+        <table>
+            <tr>
+                <td colspan="1"><strong>1. Name and address of the employee:</strong></td>
+                <td colspan="3">{{ form.employee_name }} <br> {{ form.employee_address }}</td>
+            </tr>
+            <tr>
+                <td colspan="1"><strong>2. Permanent Account Number of the employee:</strong></td>
+                <td colspan="3">{{ form.pan }}</td>
+            </tr>
+            <tr>
+                <td colspan="1"><strong>3. Financial Year:</strong></td>
+                <td colspan="3">{{ form.financial_year }}</td>
+            </tr>
+        </table>
+        <center><b>Details of claims and evidence thereof</b></center>
+        <table>
+            <tr>
+                <th>Sl No.</th>
+                <th>Nature of Claim</th>
+                <th>Amount (Rs.)</th>
+                <th>Evidence / Particulars</th>
+            </tr>
+            <tr>
+                <td>1</td>
+                <td>
+                    <strong>House Rent Allowance:</strong>
+                    <div class="sub-section">
+                        (i) Rent paid to the landlord<br>
+                        (ii) Name of the landlord<br>
+                        (iii) Address of the landlord<br>
+                        (iv) Permanent Account Number of the landlord<br>
+                        <em class="note">Note: PAN shall be furnished if rent paid exceeds Rs. 1 lakh</em>
+                    </div>
+                </td>
+                <td>
+                    <div class="sub-section">
+                        {% if form.rent_paid %}(i) {{ form.rent_paid }}<br>{% endif %}
+                        (ii) {{ form.landlord_name }}<br>
+                        (iii) {{ form.landlord_address }}<br>
+                        {% if form.landlord_pan %}(iv) {{ form.landlord_pan }}{% endif %}
+                    </div>
+                </td>
+                <td>
+                    {% if evidences.hra %}
+                    <a href="http://localhost:8000{{ evidences.hra.url }}" target="_blank">
+                        <button>View Evidence</button>
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td><strong>Leave Travel Concessions or Assistance</strong></td>
+                <td>{% if form.leave_travel_conesssions %}{{ form.leave_travel_conesssions }}{% endif %}</td>
+                <td>
+                    {% if evidences.leave_travel_consession %}
+                    <a href="http://localhost:8000{{ evidences.leave_travel_consession.url }}" target="_blank">
+                        <button>View Evidence</button>
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td>
+                    <strong>Deduction of Interest on Borrowing:</strong>
+                    <div class="sub-section">
+                        (i) Interest payable/paid to the lender<br>
+                        (ii) Name of the lender<br>
+                        (iii) Address of the lender<br>
+                        (iv) PAN of the lender<br>
+                        (a) Financial Institutions<br>
+                        (b) Employer (if available)<br>
+                        (c) Others
+                    </div>
+                </td>
+                <td>
+                    <div class="sub-section">
+                        {% if form.interest_paid %}(i) {{ form.interest_paid }}<br>{% endif %}
+                        (ii) {{ form.lender_name }}<br>
+                        (iii) {{ form.lender_address }}<br>
+                        {% if form.lender_pan %}(iv) {{ form.lender_pan }}<br>{% endif %}
+                        {% if form.financial_institution %}(a) {{ form.financial_institution }}<br>{% endif %}
+                        {% if form.employer_name %}(b) {{ form.employer_name }}<br>{% endif %}
+                        {% if form.others %}(c) {{ form.others }}{% endif %}
+                    </div>
+                </td>
+                <td>
+                    {% if evidences.interest_paid %}
+                    <a href="http://localhost:8000{{ evidences.interest_paid.url }}" target="_blank">
+                        <button>View Evidence</button>
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td>
+                    <strong>Deductions under Chapter VI-A:</strong>
+                    <div class="sub-section">
+                        (A) Section 80C, 80CCC, and 80CCD:<br>
+                        (i) Section 80C<br>
+                        (ii) Section 80CCC<br>
+                        (iii) Section 80CCD<br>
+                        (B) Other Sections:<br>
+                        (i) Section 80E<br>
+                        (ii) Section 80G<br>
+                        (iii) Section 80TTA
+                    </div>
+                </td>
+                <td>
+                    <div class="sub-section">
+                        {% if form.section_80c or form.section_80ccc or form.section_80ccd %}(A)<br>{% endif %}
+                        {% if form.section_80c %}(i) {{ form.section_80c }}<br>{% endif %}
+                        {% if form.section_80ccc %}(ii) {{ form.section_80ccc }}<br>{% endif %}
+                        {% if form.section_80ccd %}(iii) {{ form.section_80ccd }}<br>{% endif %}
+                        {% if form.section_80e_interest_paid or form.section_80g_donation_amount or form.section_80tta_interest_earned %}(B)<br>{% endif %}
+                        {% if form.section_80e_interest_paid %}(i) {{ form.section_80e_interest_paid }}<br>{% endif %}
+                        {% if form.section_80g_donation_amount %}(ii) {{ form.section_80g_donation_amount }}<br>{% endif %}
+                        {% if form.section_80tta_interest_earned %}(iii) {{ form.section_80tta_interest_earned }}{% endif %}
+                    </div>
+                </td>
+                <td>
+                    {% if evidences.section_80c %}
+                    <a href="http://localhost:8000{{ evidences.section_80c.url }}" target="_blank">
+                        <button>View Evidence (80C)</button>
+                    </a>
+                    {% endif %}
+                    {% if evidences.section_80ccc %}
+                    <a href="http://localhost:8000{{ evidences.section_80ccc.url }}" target="_blank">
+                        <button>View Evidence (80CCC)</button>
+                    </a>
+                    {% endif %}
+                    {% if evidences.section_80ccd %}
+                    <a href="http://localhost:8000{{ evidences.section_80ccd.url }}" target="_blank">
+                        <button>View Evidence (80CCD)</button>
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+        <center><b>Verification</b></center>
+        <div class="verification">
+            <p class="separater-req">I, ......................................., son/daughter of ......................................., do hereby certify that the information given above is complete and correct.</p>
+            <div class="signature">
+                <div class="place-det">
+                    <p>Place: <span>{{ form.place }}</span></p>
+                    <p>Date: <span>{{ form.created_at }}</span></p>
+                    <p>Designation: <span>{{ form.designation }}</span></p>
+                </div>
+                <div class="place-sign">
+                    <p>Signature of the employee:</p>
+                    <div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

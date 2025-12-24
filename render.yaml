@@ -1,0 +1,7 @@
+services:
+    - name: web
+      env: python manage.py runserver 0.0.0.0:443
+    - name: celery-worker
+      env: celery -A HRMS_PAYROLL worker -l info
+    - name: celery-beat
+      env: celery -A HRMS_PAYROLL beat -l info
