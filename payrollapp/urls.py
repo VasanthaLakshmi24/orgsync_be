@@ -25,6 +25,15 @@ from .views import (
     VerifyDocumentAPIView,
     EmployeeVerificationHistory,
 )
+from payrollapp.views import (
+    DepartmentCreateUpdate,
+    DepartmentList,
+    DepartmentDetail
+)
+from payrollapp.views import (
+    OrgSnapshotListAPIView,
+    OrgSnapshotDetailAPIView,
+)
 
 
 
@@ -64,13 +73,24 @@ urlpatterns = [
      path('changepassword/', changePassword.as_view(), name='changepassword'),
      path('orgstructure/', createOrgStructure.as_view(), name='orgstructure'),
      path('fetchapprovals/', fetchApprovals.as_view(), name='fetchapprovals'),
-    #  path('departments/', Departments.as_view(), name='departments'),
      path('appraisals/', Appraisal.as_view(), name='appraisals'),
-    #  path('designations/', Designations.as_view(), name='designations'),
-     path("designations/", GetDesignations.as_view(), name="designations"),
-    path("departments/", GetDepartments.as_view(), name="departments"),
-     path('fetchdepartments/', FetchDepartments.as_view(), name='fetchdepartments'),
-     path('fetchdesignations/', FetchDesignations.as_view(), name='fetchdesignations'),
+    # path("departments/", DepartmentList.as_view()),
+    # path("departments/create/", DepartmentCreateUpdate.as_view()),
+    # path("departments/<uuid:department_id>/", DepartmentDetail.as_view()),
+    # path("departments/<uuid:department_id>/update/", DepartmentCreateUpdate.as_view()),
+    # path('designations/',Designations.as_view(),name='designations-create'),
+    # path('designations/list',FetchDesignations.as_view(),name='designations-list'),
+    # path('designations/dropdwon/',GetDesignations.as_view(),name='designations-dropdwon'),
+    path("departments/", DepartmentList.as_view()),
+path("departments/create/", DepartmentCreateUpdate.as_view()),
+path("departments/<uuid:department_id>/", DepartmentDetail.as_view()),
+path("departments/<uuid:department_id>/update/", DepartmentCreateUpdate.as_view()),
+
+path("designations/", Designations.as_view(), name="designations-create"),
+path("designations/list/", FetchDesignations.as_view(), name="designations-list"),
+path("designations/dropdown/", GetDesignations.as_view(), name="designations-dropdown"),
+path("job-families/", JobFamilies.as_view()),
+
      path('basicdetails/',basicDetails.as_view(), name='basicdetails'),
      path('bankdetails/',EmployeeBankDetailsAPIView.as_view(), name='bankdetails'),
      path('getbasicdetails/',GetbasicDetails.as_view(), name='getbasicdetails'),
@@ -162,7 +182,7 @@ urlpatterns = [
      path('pfslab/<uuid:pk>/', PfSlabsDetailView.as_view(), name='pfslabs-detail'),
      path('empdataforrm/',EmpDataForRM.as_view(), name='empdataforrm'),
      path('empdataforhr/',EmpDataForHR.as_view(), name='empdataforhr'),
-     path('fetchdept/',FetchDepartments.as_view(), name='fetchdept'),
+    #  path('fetchdept/',FetchDepartments.as_view(), name='fetchdept'),
      path('fetchattrecords/',FetchAttendanceRecords.as_view(), name='fetchattrecords'),
      path('updateattrecord/',UpdateAttendanceRecord.as_view(), name='updateattrecord'),
      path('isrm/',isReportingManager.as_view(), name='fetchdept'),
@@ -222,17 +242,37 @@ urlpatterns = [
      path('employees-by-role/', EmployeesByRole.as_view(),name='employees_by_role'),
      path('handle-images/',HandleImages.as_view(), name='handle_images'),
     # path("handle-images/", HandleImages.as_view()),
-
      path('get-handle-images/',GethandleImages.as_view(),name='get_handle_images'),
      path("allowed-actions/",AllowedActionsByRole.as_view(),name="allowed_actions_by_role"),
      path("my-doc-verification-status/", MyDocumentVerificationStatus.as_view()),
      path("my-roles/", MyRoles.as_view()),
-     path(
-    "update-document-verification/",
-    UpdateDocumentVerification.as_view()
-),
-
+     path( "update-document-verification/",  UpdateDocumentVerification.as_view()),
      path("employees-in-org/", AllEmployeesInOrg.as_view(), name="employees_in_org"),
      path("send-rejection-summary/", SendRejectionSummary.as_view()),
+     path("business-units/", BusinessUnitListCreate.as_view()),
+     path("locations/", LocationListCreate.as_view()),
+     path("c-level/seats/", CLevelSeatListCreateView.as_view()),
+     path("c-level/seats/<uuid:id>/", CLevelSeatDetailView.as_view()),
+     path("c-level/assignments/", CLevelAssignmentCreateView.as_view()),
+     path("c-level/assignments/current/", CurrentCLevelAssignmentsView.as_view()),
+     path("c-level/assignments/<uuid:id>/", CLevelAssignmentDetailView.as_view()),
+     path("org/reporting-preview/", ReportingPreview.as_view()),
+     path("business-owner/", BusinessOwnerView.as_view()),
+     path("organization/org-chart/tree/", OrgChartTreeAPIView.as_view(),name="org-chart-tree"),
+     path("organization/org-chart/matrix/", OrgChartMatrixAPIView.as_view(), name="org-chart-matrix" ),
+     path("organization/org-chart/analytics/", OrgAnalyticsAPIView.as_view(), name="org-chart-analytics"),
+   path(
+        "snapshots/",
+        OrgSnapshotListAPIView.as_view(),
+        name="org-snapshot-list",
+    ),
+    path(
+        "snapshots/<uuid:snapshot_id>/",
+        OrgSnapshotDetailAPIView.as_view(),
+        name="org-snapshot-detail",
+    ),
+    path("org/version/", OrgVersionAPIView.as_view()),
+    path("organization/move-employee/", MoveEmployeeAPIView.as_view()),
+
 
 ]

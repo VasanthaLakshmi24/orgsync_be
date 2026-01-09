@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from datetime import timedelta
 from celery.schedules import crontab
+
 load_dotenv()
 # apiurl=os.environ.get('apiurl')
 
@@ -39,13 +40,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'payrollapp',
+    'payrollapp.apps.PayrollappConfig',
+    # 'payrollapp',
     'rest_framework',
     'rest_framework_simplejwt',
     'django_celery_results',
     'django_celery_beat',
     'import_export',
-    # 'activity_log',
+    'activity_log',
     'cloudinary',
 ]
 
@@ -137,8 +139,8 @@ DATABASES = {
          'NAME': os.environ.get('DB_NAME'),
          'USER': os.environ.get('DB_USER'),
          'PASSWORD': os.environ.get('DB_PASSWORD'),
-         'HOST': os.environ.get('DB_HOST'),
-         'PORT': os.environ.get('DB_PORT'),
+         "HOST": os.getenv("DB_HOST", "localhost"),
+         "PORT": os.getenv("DB_PORT", "5432"),
      }
 }
 

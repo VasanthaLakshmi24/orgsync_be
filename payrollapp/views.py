@@ -1,4 +1,5 @@
 import random
+from django.db.models import Count   
 from django.apps import apps
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.shortcuts import get_object_or_404
@@ -59,13 +60,28 @@ from payrollapp.models import (
     RoleRequests,
     Employee,
     Roles,
-    ChildAccount as Child  # 👈 REQUIRED IMPORT
+    ChildAccount as Child  ,Department, CLevelSeat,
 )
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from payrollapp.tasks import send_rejection_summary_email
 from payrollapp.utils import can_verify_document
 from rest_framework.pagination import PageNumberPagination
+from .models import BusinessUnit, Location
+from .serializers import( BusinessUnitSerializer, LocationSerializer, DepartmentSerializer,CLevelSeatSerializer,
+    CLevelAssignmentSerializer,)
+from payrollapp.models import Document
+from payrollapp.services.org_snapshot_service import create_org_snapshot
 
+
+def get_profile_image(emp):
+    """
+    Safely return profile image URL for an employee
+    """
+    try:
+        doc = Document.objects.get(employee=emp)
+        return doc.profile.url if doc.profile else None
+    except Document.DoesNotExist:
+        return None
 
 def get_user_employee(user):
     """
@@ -485,112 +501,8 @@ class fetchreviewroles(APIView):
         my_serializer = RoleRequestsSerializer(my_req, many=True)
         req_serializer = RoleRequestsSerializer(req, many=True)
         return Response({'my_req':my_serializer.data , 'req':req_serializer.data}, status=status.HTTP_200_OK)
-
-class Departments(APIView):
-    permission_classes = [IsAuthenticated]
-    def post(self,request):
-        given_departments = request.data['departments']
-        user = request.user
-        childid=request.data['childid']
-        child=ChildAccount.objects.get(id=childid)
-        emp = Employee.objects.get(email = user.email)
-        approval_obj =  OrgStructureApprovals.objects.create(sender = user,receiver = emp.reported_to,parent = emp.parent,child = child,type = "departments")
-        existing_departments = approval_obj.get_departments()
-        for department in given_departments:
-            if(department not in existing_departments):
-                existing_departments.append(department)
-        approval_obj.set_departments(existing_departments)
-        approval_obj.save()
-        message = f"Dear {emp.reported_to.username},We hope this message finds you well.\nWe would like to inform you that there is an action required regarding the addition of departments in our organization.\nYour assistance is needed for defining departments within the organization. Please visit the approvals tab for more details.\nIf you have any questions or require clarification, please don't hesitate to reach out.\nThank you for your cooperation.\nBest regards,\nGA Org Sync"
-        Notification.objects.create(sender = user,receiver =  emp.reported_to,message=message)
-        try:
-            sendemail(
-                'Designation Addition - Action Required',
-                message,
-                [emp.reported_to.email],
-            )
-        except:
-            pass
-        return Response({'data': 'Data sent Successfully. Awaiting Approval'}, status=status.HTTP_200_OK)
-
-class FetchDepartments(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        childid = request.data.get('childid')
-
-        employee = Employee.objects.get(email=user.email)
-        child = ChildAccount.objects.filter(id=childid).first()
-
-        queryset = Department.objects.filter(parent=employee.parent)
-
-        if child:
-            queryset = queryset.filter(child=child)
-
-        data = queryset.values("id", "name")
-
-        return Response({"data": list(data)}, status=status.HTTP_200_OK)
-
-class GetDepartments(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        data = Department.objects.values("id", "name")
-        return Response(data, status=200)
-
-class Designations(APIView):
-    permission_classes = [IsAuthenticated]
-    def post(self,request):
-        given_designations = request.data['designations']
-        user = request.user
-        childid=request.data['childid']
-        child=ChildAccount.objects.get(id=childid)
-        emp = Employee.objects.get(email = user.email)
-        approval_obj =  OrgStructureApprovals.objects.create(sender = user,receiver = emp.reported_to,parent = emp.parent,child = child,type = "designations")
-        existing_designations = approval_obj.get_designations()
-        for designation in given_designations:
-            if(designation not in existing_designations):
-                existing_designations.append(designation)
-        approval_obj.set_designations(existing_designations)
-        approval_obj.save()
-        message = f"Dear {emp.reported_to.username},We hope this message finds you well.\nWe would like to inform you that there is an action required regarding the addition of designations in our organization. Your input is crucial in defining these roles.\nYour assistance is needed for defining designations within the organization. Please visit the approvals tab for more details.\nIf you have any questions or require clarification, please don't hesitate to reach out.\nThank you for your cooperation.\nBest regards,\nGA Org Sync"
-        Notification.objects.create(sender = user,receiver =  emp.reported_to,message=message)
-        try:
-            sendemail(
-                'Designation Addition - Action Required',
-                message,
-                [ emp.reported_to.email],
-            )
-        except:
-            pass
-        return Response({'data': 'Data sent Successfully. Awaiting Approval'}, status=status.HTTP_200_OK)
-
-class FetchDesignations(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        childid = request.data.get('childid')
-
-        employee = Employee.objects.get(email=user.email)
-        child = ChildAccount.objects.filter(id=childid).first()
-
-        queryset = Designation.objects.filter(parent=employee.parent)
-
-        if child:
-            queryset = queryset.filter(child=child)
-
-        data = queryset.values("id", "name")
-
-        return Response({"data": list(data)}, status=status.HTTP_200_OK)
-
-class GetDesignations(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        data = Designation.objects.values("id", "name")
-        return Response(data, status=200)
+def is_hr_head(emp):
+    return emp.roles.filter(name__iexact="HR_Head").exists()
 
 class fetchNotification(APIView):
     permission_classes = [IsAuthenticated]
@@ -691,17 +603,31 @@ class updateApproval(APIView):
                     roles = app.get_roles()
                     for role in roles:
                         Roles.objects.create(parent = emp.parent,child = child, name = role)
-                if app.type == "departments":
-                    depts = app.get_departments()
-                    for dept in depts:
-                        Department.objects.create(parent = emp.parent,child = child, name = dept)
+                    if app.type == "departments":
+                        depts = app.get_departments()
+                        for dept in depts:
+                            Department.objects.create(
+            name=dept["name"],
+            parent=emp.parent,
+            child=child,
+            parent_department_id=dept.get("parent_department"),
+            department_head_id=dept.get("department_head"),
+            business_unit_id=dept.get("business_unit"),
+            cost_center=dept.get("cost_center"),
+            is_active=True
+        )
+
+                # if app.type == "departments":
+                #     depts = app.get_departments()
+                #     for dept in depts:
+                #         Department.objects.create(parent = emp.parent,child = child, name = dept)
                 if app.type == "designations":
                     desigs = app.get_designations()
                     for desig in desigs:
-                        Designation.objects.create(parent = emp.parent,child = child, name = desig)
-            app.status = stat
-            app.save()
-            return Response({'message':'Status Updated Successfully'},status=status.HTTP_200_OK)
+                        Designation.objects.create(name=desig["name"], parent=emp.parent,child=child,job_family=desig.get("job_family") ,level=desig.get("level"),band=desig.get("band"),is_active=True)
+                        app.status = stat
+                        app.save()
+                        return Response({'message':'Status Updated Successfully'},status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1038,11 +964,15 @@ class isReportingManager(APIView):
         child=ChildAccount.objects.get(id=childid)
         employee=Employee.objects.get(user=user)
         parent=employee.parent
-        employees=Employee.objects.filter(parent=parent,child=child,reported_to=user,status="onroll")
-        if len(employees)>0:
-            return Response({"isRM": True}, status=status.HTTP_200_OK)
-        else:
-            return Response({"isRM": False}, status=status.HTTP_200_OK)
+        employees=Employee.objects.filter(parent=parent,child=child,reporting_manager=employee,status="onroll")
+        return Response(
+            {"isRM": employees.exists()},
+            status=status.HTTP_200_OK
+        )
+        # if len(employees)>0:
+        #     return Response({"isRM": True}, status=status.HTTP_200_OK)
+        # else:
+        #     return Response({"isRM": False}, status=status.HTTP_200_OK)
 
 
 class IpRestriction(APIView):
@@ -2118,3 +2048,1064 @@ class DocumentVerificationPagination(PageNumberPagination):
             "current_page": self.page.number,
             "results": data,
         })
+
+class BusinessUnitListCreate(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        emp = Employee.objects.get(user=request.user)
+        qs = BusinessUnit.objects.filter(
+            parent=emp.parent,
+            is_active=True
+        )
+        serializer = BusinessUnitSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        emp = Employee.objects.get(user=request.user)
+        serializer = BusinessUnitSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(parent=emp.parent)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class LocationListCreate(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        emp = Employee.objects.get(user=request.user)
+        qs = Location.objects.filter(
+            parent=emp.parent,
+            is_active=True
+        ).annotate(employee_count=Count("employees"))
+        serializer = LocationSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        emp = Employee.objects.get(user=request.user)
+        serializer = LocationSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(parent=emp.parent)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class JobFamilies(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        families = [
+            "Engineering",
+            "HR",
+            "Finance",
+            "Operations",
+            "Leadership",
+            "Sales",
+            "Marketing"
+        ]
+        return Response({"data": families}, status=200)
+
+# class DepartmentCreateUpdate(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         """
+#         Create Department
+#         Only Business Owner allowed
+#         """
+#         user = request.user
+#         employee = Employee.objects.get(email=user.email)
+
+#         if employee.role != "BUSINESS_OWNER":
+#             return Response(
+#                 {"error": "Only Business Owner can create departments"},
+#                 status=status.HTTP_403_FORBIDDEN
+#             )
+
+#         data = request.data
+
+#         department = Department.objects.create(
+#             name=data.get("name"),
+#             description=data.get("description"),
+#             organization=employee.parent,
+#             business_unit_id=data.get("business_unit"),
+#             parent_department_id=data.get("parent_department"),
+#             reports_to_clevel_id=data.get("reports_to_clevel"),
+#             is_active=True
+#         )
+
+#         return Response(
+#             {
+#                 "message": "Department created successfully",
+#                 "department_id": department.id,
+#                 "department_code": department.department_code
+#             },
+#             status=status.HTTP_201_CREATED
+#         )
+
+#     def put(self, request, department_id):
+#         """
+#         Update Department
+#         """
+#         user = request.user
+#         employee = Employee.objects.get(email=user.email)
+
+#         if employee.role != "BUSINESS_OWNER":
+#             return Response(
+#                 {"error": "Only Business Owner can update departments"},
+#                 status=status.HTTP_403_FORBIDDEN
+#             )
+
+#         department = Department.objects.filter(
+#             id=department_id,
+#             organization=employee.parent
+#         ).first()
+
+#         if not department:
+#             return Response(
+#                 {"error": "Department not found"},
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+
+#         data = request.data
+
+#         department.name = data.get("name", department.name)
+#         department.description = data.get("description", department.description)
+#         department.business_unit_id = data.get("business_unit", department.business_unit_id)
+#         department.parent_department_id = data.get("parent_department", department.parent_department_id)
+#         department.reports_to_clevel_id = data.get("reports_to_clevel", department.reports_to_clevel_id)
+#         department.is_active = data.get("is_active", department.is_active)
+
+#         department.save()
+
+#         return Response(
+#             {"message": "Department updated successfully"},
+#             status=status.HTTP_200_OK
+#         )
+
+class DepartmentCreateUpdate(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        employee = Employee.objects.get(email=user.email)
+        if not (is_hr_head(employee) or is_business_owner(employee)):
+            return Response(
+            {"error": "Only Business Owner or HR Head can manage departments"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+        data = request.data
+
+        department = Department.objects.create(
+            name=data.get("name"),
+            description=data.get("description"),
+            organization=employee.parent,
+            business_unit_id=data.get("business_unit"),
+            parent_department_id=data.get("parent_department"),
+            reports_to_clevel_id=data.get("reports_to_clevel"),
+            department_head_id=data.get("department_head"),
+            is_active=data.get("is_active", True),
+        )
+
+        # auto link HOD → CXO
+        if department.department_head and department.reports_to_clevel:
+            clevel_assignment = CLevelAssignment.objects.filter(
+                c_level_seat=department.reports_to_clevel,
+                is_current=True
+            ).first()
+
+            if clevel_assignment and clevel_assignment.employee:
+                department.department_head.reporting_manager = clevel_assignment.employee
+                department.department_head.save()
+
+        return Response(
+            {
+                "message": "Department created successfully",
+                "department_id": department.id,
+                "department_code": department.department_code,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def put(self, request, department_id):
+        user = request.user
+        employee = Employee.objects.get(email=user.email)
+
+        if employee.role not in ["BUSINESS_OWNER", "HR_HEAD"]:
+            return Response(
+                {"error": "Only Business Owner or HR Head can manage departments"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        department = Department.objects.filter(
+            id=department_id,
+            organization=employee.parent
+        ).first()
+
+        if not department:
+            return Response(
+                {"error": "Department not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        data = request.data
+
+        department.name = data.get("name", department.name)
+        department.description = data.get("description", department.description)
+        department.business_unit_id = data.get("business_unit", department.business_unit_id)
+        department.parent_department_id = data.get("parent_department", department.parent_department_id)
+        department.reports_to_clevel_id = data.get("reports_to_clevel", department.reports_to_clevel_id)
+        department.department_head_id = data.get("department_head", department.department_head_id)
+        department.is_active = data.get("is_active", department.is_active)
+
+        department.save()
+
+        if department.department_head and department.reports_to_clevel:
+            clevel_assignment = CLevelAssignment.objects.filter(
+                c_level_seat=department.reports_to_clevel,
+                is_current=True
+            ).first()
+
+            if clevel_assignment and clevel_assignment.employee:
+                department.department_head.reporting_manager = clevel_assignment.employee
+                department.department_head.save()
+
+        return Response(
+            {"message": "Department updated successfully"},
+            status=status.HTTP_200_OK
+        )
+
+class DepartmentList(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        employee = Employee.objects.get(email=user.email)
+
+        departments = Department.objects.filter(
+            organization=employee.parent,
+            is_active=True
+        ).select_related(
+            "business_unit",
+            "parent_department",
+            "reports_to_clevel"
+        )
+
+        data = []
+
+        for dept in departments:
+            data.append({
+                "id": dept.id,
+                "department_code": dept.department_code,
+                "name": dept.name,
+                "business_unit": dept.business_unit.name if dept.business_unit else None,
+                "parent_department": dept.parent_department.name if dept.parent_department else None,
+                "reports_to_clevel": dept.reports_to_clevel.seat_code if dept.reports_to_clevel else None,
+                "department_head": dept.department_head.userName if dept.department_head else None,
+
+            })
+
+        return Response({"data": data}, status=status.HTTP_200_OK)
+class DepartmentDetail(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, department_id):
+        user = request.user
+        employee = Employee.objects.get(email=user.email)
+
+        department = Department.objects.filter(
+            id=department_id,
+            organization=employee.parent
+        ).first()
+
+        if not department:
+            return Response(
+                {"error": "Department not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        data = {
+    "id": department.id,
+    "department_code": department.department_code,
+    "name": department.name,
+    "description": department.description,
+
+    "business_unit": department.business_unit_id,
+    "parent_department": department.parent_department_id,
+
+    # Level-1 (C-Level)
+    "reports_to_clevel": department.reports_to_clevel_id,
+    "reports_to_clevel_code": (
+        department.reports_to_clevel.seat_code
+        if department.reports_to_clevel else None
+    ),
+    "reports_to_clevel_title": (
+        department.reports_to_clevel.title
+        if department.reports_to_clevel else None
+    ),
+
+    # Level-2 (HOD)
+    "department_head": department.department_head_id,
+    "department_head_name": (
+        department.department_head.userName
+        if department.department_head else None
+    ),
+
+    "is_active": department.is_active,
+}
+        return Response(data, status=status.HTTP_200_OK)
+
+        # data = {
+        #     "id": department.id,
+        #     "department_code": department.department_code,
+        #     "name": department.name,
+        #     "description": department.description,
+        #     "business_unit": department.business_unit_id,
+        #     "parent_department": department.parent_department_id,
+        #     "reports_to_clevel": department.reports_to_clevel_id,
+        #     "is_active": department.is_active,
+        # }
+
+        # return Response(data, status=status.HTTP_200_OK)
+class Designations(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        emp = Employee.objects.get(email=user.email)
+
+        childid = request.data.get("childid")
+        designations = request.data.get("designations", [])
+
+        if not designations:
+            return Response(
+                {"error": "No designations provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        child = None
+        if childid:
+            child = ChildAccount.objects.get(id=childid)
+
+        # ================= HR HEAD → DIRECT CREATE =================
+        if is_hr_head(emp):
+            created = []
+
+            for d in designations:
+                desig, _ = Designation.objects.get_or_create(
+                    name=d["name"],
+                    parent=emp.parent,
+                    child=child,
+                    defaults={
+                        "job_family": d.get("job_family"),
+                        "level": d.get("level"),
+                        "band": d.get("band"),
+                        "reports_to_id": d.get("reports_to"),
+                    }
+                )
+                created.append(desig.name)
+
+            return Response(
+                {"data": f"Designations created: {created}"},
+                status=status.HTTP_201_CREATED
+            )
+
+        # ================= NON-HR → APPROVAL FLOW =================
+        if not emp.reporting_manager:
+            return Response(
+                {"error": "Reporting manager not assigned"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        approval = OrgStructureApprovals.objects.create(
+            sender=user,
+            receiver=emp.reporting_manager.user,
+            parent=emp.parent,
+            child=child,
+            type="designations"
+        )
+
+        approval.set_designations(designations)
+        approval.save()
+
+        message = (
+            f"Dear {emp.reporting_manager.user.username},\n\n"
+            "Action required for adding new designations.\n"
+            "Please review them in the approvals section.\n\n"
+            "Regards,\nGA Org Sync"
+        )
+
+        Notification.objects.create(
+            sender=user,
+            receiver=emp.reporting_manager.user,
+            message=message
+        )
+
+        try:
+            sendemail(
+                subject="Designation Addition - Action Required",
+                message=message,
+                recipients=[emp.reporting_manager.user.email],
+            )
+        except Exception:
+            pass
+
+        return Response(
+            {"data": "Sent for approval"},
+            status=status.HTTP_200_OK
+        )
+class FetchDesignations(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        emp = Employee.objects.get(email=request.user.email)
+        childid = request.query_params.get("childid")
+
+        qs = Designation.objects.filter(
+            parent=emp.parent,
+            is_active=True
+        )
+
+        if childid:
+            qs = qs.filter(child_id=childid)
+
+        data = qs.values(
+            "id",
+            "name",
+            "job_family",
+            "level",
+            "band",
+            "reports_to_id"
+        )
+
+        return Response({"data": list(data)}, status=200)
+class GetDesignations(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        emp = Employee.objects.get(email=request.user.email)
+
+        data = Designation.objects.filter(
+            parent=emp.parent,
+            is_active=True
+        ).values("id", "name").order_by("name")
+
+        return Response({"data": list(data)}, status=200)
+
+class CLevelSeatListCreateView(ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CLevelSeatSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        emp = Employee.objects.get(user=user)
+        return CLevelSeat.objects.filter(parent=emp.parent, is_active=True)
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        emp = Employee.objects.get(user=user)
+        serializer.save(parent=emp.parent)
+
+
+class CLevelSeatDetailView(RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CLevelSeatSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        user = self.request.user
+        emp = Employee.objects.get(user=user)
+        return CLevelSeat.objects.filter(parent=emp.parent)
+class CLevelAssignmentCreateView(ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CLevelAssignmentSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        emp = Employee.objects.get(user=user)
+        return CLevelAssignment.objects.filter(
+            c_level_seat__parent=emp.parent
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(assigned_by=self.request.user)
+
+
+class CurrentCLevelAssignmentsView(ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CLevelAssignmentSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        emp = Employee.objects.get(user=user)
+        return CLevelAssignment.objects.filter(
+            c_level_seat__parent=emp.parent,
+            is_current=True
+        )
+from rest_framework.generics import RetrieveUpdateDestroyAPIView
+
+class CLevelAssignmentDetailView(RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CLevelAssignmentSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        user = self.request.user
+        emp = Employee.objects.get(user=user)
+        return CLevelAssignment.objects.filter(
+            c_level_seat__parent=emp.parent
+        )
+class ReportingPreview(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            emp = Employee.objects.get(user=request.user)
+            parent = emp.parent
+        except Employee.DoesNotExist:
+            return Response(
+                {"reported_to_name": None},
+                status=status.HTTP_200_OK
+            )
+
+        # Find CEO
+        ceo = Employee.objects.filter(
+            parent=parent,
+            designation__name__iexact="CEO"
+        ).first()
+
+        # If CEO exists → other C-levels report to CEO
+        if ceo:
+            return Response(
+                {
+                    "reported_to_name": ceo.userName,
+                    "reported_to_id": ceo.id
+                },
+                status=status.HTTP_200_OK
+            )
+
+        # Else CEO reports to Business Owner
+        return Response(
+            {
+                "reported_to_name": parent.regUser.username,
+                "reported_to_id": None
+            },
+            status=status.HTTP_200_OK
+        )
+class BusinessOwnerView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            org = Organization.objects.get(regUser=request.user)
+        except Organization.DoesNotExist:
+            emp = Employee.objects.get(user=request.user)
+            org = emp.parent
+
+        return Response({
+            "id": org.regUser.id,
+            "name": org.regUser.username,
+            "email": org.regUser.email
+        })
+class OrgChartTreeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            me = Employee.objects.select_related("parent").get(user=request.user)
+        except Employee.DoesNotExist:
+            return Response({"data": []})
+
+        org = me.parent
+        nodes = []
+        added = set()
+
+        def add_node(node_id, name, type_, parent_id, employee=None):
+            nodes.append({
+                "id": node_id,
+                "name": name,
+                "type": type_,
+                "parentId": parent_id,
+                "meta": {
+                    "employee": {
+                        "id": employee.id,
+                        "name": employee.userName,
+                        "email": employee.email,
+                        "profile_image": get_profile_image(employee)
+                    } if employee else None
+                }
+            })
+
+        # ================= L0 BUSINESS OWNER =================
+        bo = Employee.objects.filter(
+            parent=org,
+            designation__level="L0"
+        ).first()
+
+        if not bo:
+            return Response({"data": []})
+
+        add_node("L0", "Business Owner", "ROLE", None, bo)
+        added.add(bo.id)
+
+        # ================= L1 CEO =================
+        ceo = Employee.objects.filter(
+            parent=org,
+            designation__level="L1"
+        ).exclude(id=bo.id).first()
+
+        if ceo:
+            add_node("L1", "CEO", "ROLE", "L0", ceo)
+            added.add(ceo.id)
+
+        # ================= L2 C-LEVEL =================
+        clevel_nodes = {}
+        for emp in Employee.objects.filter(
+            parent=org,
+            designation__level="L2"
+        ):
+            node_id = f"L2-{emp.id}"
+            add_node(node_id, emp.designation.name, "CLEVEL", "L1", emp)
+            clevel_nodes[emp.id] = node_id
+            added.add(emp.id)
+
+        # ================= L3 DEPARTMENTS =================
+        dept_nodes = {}
+        for dept in Department.objects.filter(organization=org, is_active=True):
+            if not dept.reports_to_clevel_id:
+                continue
+
+            clevel_emp = CLevelAssignment.objects.filter(
+                c_level_seat_id=dept.reports_to_clevel_id,
+                is_current=True
+            ).select_related("employee").first()
+
+            if not clevel_emp or clevel_emp.employee.id not in clevel_nodes:
+                continue
+
+            dept_id = f"dept-{dept.id}"
+            add_node(
+                dept_id,
+                dept.name,
+                "DEPARTMENT",
+                clevel_nodes[clevel_emp.employee.id],
+                dept.department_head
+            )
+            dept_nodes[dept.id] = dept_id
+            if dept.department_head:
+                added.add(dept.department_head.id)
+
+        # ================= L4–L7 EMPLOYEES =================
+        for emp in Employee.objects.filter(parent=org, status="onroll"):
+            if emp.id in added:
+                continue
+
+            if emp.reporting_manager and emp.reporting_manager.id in added:
+                parent_id = f"emp-{emp.reporting_manager.id}"
+            elif emp.department_id in dept_nodes:
+                parent_id = dept_nodes[emp.department_id]
+            else:
+                continue
+
+            add_node(
+                f"emp-{emp.id}",
+                emp.userName,
+                "EMPLOYEE",
+                parent_id,
+                emp
+            )
+            added.add(emp.id)
+
+        return Response({
+            "organization": org.orgName,
+            "data": nodes
+        })
+class OrgChartMatrixAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            me = Employee.objects.select_related("parent").get(user=request.user)
+        except Employee.DoesNotExist:
+            return Response({"nodes": [], "links": []})
+
+        org = me.parent
+        nodes = []
+        links = []
+        added = set()
+        solid_parent = {}
+
+        def add_node(emp, label):
+            node_id = f"emp-{emp.id}"
+            if node_id in added:
+                return node_id
+
+            nodes.append({
+                "id": node_id,
+                "type": "EMPLOYEE",
+                "name": label,
+                "meta": {
+                    "employee": {
+                        "id": emp.id,
+                        "name": emp.userName,
+                        "email": emp.email,
+                        "profile_image": get_profile_image(emp)
+                    }
+                }
+            })
+            added.add(node_id)
+            return node_id
+
+        def solid(parent, child):
+            if child in solid_parent:
+                return
+            solid_parent[child] = parent
+            links.append({
+                "source": parent,
+                "target": child,
+                "relation": "REPORTS_TO",
+                "style": "solid"
+            })
+
+        def dotted(parent, child):
+            links.append({
+                "source": parent,
+                "target": child,
+                "relation": "MATRIX_REPORTS_TO",
+                "style": "dashed"
+            })
+
+        # ================= L0 BUSINESS OWNER =================
+        bo = Employee.objects.filter(parent=org, designation__level="L0").first()
+        if not bo:
+            return Response({"nodes": [], "links": []})
+
+        bo_id = add_node(bo, "Business Owner")
+
+        # ================= L1 CEO =================
+        ceo = Employee.objects.filter(parent=org, designation__level="L1").first()
+        ceo_id = None
+        if ceo:
+            ceo_id = add_node(ceo, "CEO")
+            solid(bo_id, ceo_id)
+
+        # ================= L2 C-LEVEL =================
+        clevel_emp_ids = []
+        for emp in Employee.objects.filter(parent=org, designation__level="L2"):
+            emp_id = add_node(emp, emp.designation.name)
+            solid(ceo_id, emp_id)
+            clevel_emp_ids.append(emp.id)
+
+        # ================= L3 DEPARTMENTS =================
+        dept_nodes = {}
+        for dept in Department.objects.filter(organization=org, is_active=True):
+            if not dept.reports_to_clevel_id:
+                continue
+
+            clevel_assign = CLevelAssignment.objects.filter(
+                c_level_seat_id=dept.reports_to_clevel_id,
+                is_current=True
+            ).select_related("employee").first()
+
+            if not clevel_assign:
+                continue
+
+            clevel_emp = clevel_assign.employee
+            if clevel_emp.id not in clevel_emp_ids:
+                continue
+
+            dept_id = f"dept-{dept.id}"
+            nodes.append({
+                "id": dept_id,
+                "type": "DEPARTMENT",
+                "name": dept.name
+            })
+            solid(f"emp-{clevel_emp.id}", dept_id)
+            dept_nodes[dept.id] = dept_id
+
+        # ================= L4–L7 EMPLOYEES =================
+        for emp in Employee.objects.filter(parent=org, status="onroll"):
+            emp_id = add_node(emp, emp.designation.name if emp.designation else "Employee")
+
+            if emp.reporting_manager:
+                solid(f"emp-{emp.reporting_manager.id}", emp_id)
+            elif emp.department_id in dept_nodes:
+                solid(dept_nodes[emp.department_id], emp_id)
+
+        # ================= MATRIX LINKS =================
+        for emp in Employee.objects.filter(parent=org, status="onroll"):
+            for mgr in emp.matrix_managers.all():
+                dotted(f"emp-{mgr.id}", f"emp-{emp.id}")
+
+        return Response({
+            "organization": org.orgName,
+            "nodes": nodes,
+            "links": links
+        })
+
+class OrgAnalyticsSummaryAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        me = Employee.objects.select_related("parent").get(user=request.user)
+        org = me.parent
+
+        employees = Employee.objects.filter(parent=org, status="onroll")
+
+        # 1️⃣ TOTAL
+        total_employees = employees.count()
+
+        # 2️⃣ BY DEPARTMENT
+        by_department = (
+            employees
+            .values("department__name")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        )
+
+        # 3️⃣ BY DESIGNATION LEVEL
+        by_level = (
+            employees
+            .values("designation__level")
+            .annotate(count=Count("id"))
+            .order_by("designation__level")
+        )
+
+        # 4️⃣ BY LOCATION
+        by_location = (
+            employees
+            .values("location__name")
+            .annotate(count=Count("id"))
+        )
+
+        return Response({
+            "headcount": {
+                "total": total_employees,
+                "by_department": list(by_department),
+                "by_level": list(by_level),
+                "by_location": list(by_location),
+            }
+        })
+class OrgAnalyticsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            me = Employee.objects.select_related("parent").get(user=request.user)
+        except Employee.DoesNotExist:
+            return Response({})
+
+        org = me.parent
+
+        # =========================
+        # 1️⃣ HEADCOUNT
+        # =========================
+        employees = Employee.objects.filter(parent=org, status="onroll")
+
+        total_headcount = employees.count()
+
+        by_department = (
+            employees.values("department__name")
+            .annotate(count=Count("id"))
+        )
+
+        by_level = (
+            employees.values("designation__level")
+            .annotate(count=Count("id"))
+        )
+
+        by_location = (
+            employees.values("location__name")
+            .annotate(count=Count("id"))
+        )
+
+        # =========================
+        # 2️⃣ SPAN OF CONTROL
+        # =========================
+        span_of_control = (
+            employees.values("reporting_manager__userName")
+            .annotate(direct_reports=Count("id"))
+            .exclude(reporting_manager__isnull=True)
+        )
+
+        # =========================
+        # 3️⃣ ORG DEPTH (DFS)
+        # =========================
+        tree = defaultdict(list)
+
+        for emp in employees:
+            if emp.reporting_manager_id:
+                tree[emp.reporting_manager_id].append(emp.id)
+
+        def dfs(emp_id, depth):
+            if emp_id not in tree:
+                return depth
+            return max(dfs(child, depth + 1) for child in tree[emp_id])
+
+        max_depth = 1
+        roots = employees.filter(reporting_manager__isnull=True)
+
+        for root in roots:
+            max_depth = max(max_depth, dfs(root.id, 1))
+
+        # =========================
+        # 4️⃣ VACANCIES
+        # =========================
+        vacant_departments = Department.objects.filter(
+            organization=org,
+            department_head__isnull=True,
+            is_active=True
+        ).values("name")
+
+        vacant_designations = Designation.objects.filter(
+            parent=org
+        ).annotate(emp_count=Count("employees")).filter(emp_count=0).values("name", "level")
+
+        vacant_clevels = CLevelSeat.objects.filter(
+            parent=org,
+            is_active=True
+        ).exclude(
+            assignments__is_current=True
+        ).values("title")
+
+        return Response({
+            "headcount": {
+                "total": total_headcount,
+                "by_department": list(by_department),
+                "by_level": list(by_level),
+                "by_location": list(by_location),
+            },
+            "span_of_control": list(span_of_control),
+            "org_depth": {
+                "max_depth": max_depth
+            },
+            "vacancies": {
+                "departments": list(vacant_departments),
+                "designations": list(vacant_designations),
+                "clevel_seats": list(vacant_clevels),
+            }
+        })
+
+# class OrgSnapshotListAPIView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request):
+#         org = Employee.objects.get(user=request.user).parent
+
+#         snapshots = OrgSnapshot.objects.filter(organization=org).values(
+#             "id", "snapshot_type", "created_at"
+#         )
+
+#         return Response({"snapshots": snapshots})
+
+#     def post(self, request):
+#         org = Employee.objects.get(user=request.user).parent
+#         snapshot_type = request.data.get("snapshot_type", "MANUAL")
+
+#         snapshot = create_org_snapshot(org, snapshot_type)
+
+#         return Response({
+#             "message": "Snapshot created",
+#             "snapshot_id": snapshot.id
+#         })
+
+
+# class OrgSnapshotDetailAPIView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, snapshot_id):
+#         snapshot = OrgSnapshot.objects.get(id=snapshot_id)
+
+#         return Response({
+#             "tree": snapshot.tree_data,
+#             "matrix": snapshot.matrix_data,
+#             "analytics": snapshot.analytics_data,
+#             "created_at": snapshot.created_at,
+#             "type": snapshot.snapshot_type
+#         })
+
+
+
+class OrgSnapshotListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_object_or_404(Employee, user=request.user)
+        org = employee.parent
+
+        qs = OrgSnapshot.objects.filter(
+            organization=org
+        ).order_by("-created_at")
+
+        # ✅ MANUAL SERIALIZATION (UUID SAFE)
+        snapshots = [
+            {
+                "id": str(s.id),                  # ✅ FIX
+                "snapshot_type": s.snapshot_type,
+                "created_at": s.created_at.isoformat(),  # ✅ SAFE
+            }
+            for s in qs
+        ]
+
+        return Response({"snapshots": snapshots})
+
+    def post(self, request):
+        employee = get_object_or_404(Employee, user=request.user)
+        org = employee.parent
+
+        snapshot_type = request.data.get("snapshot_type", "MANUAL")
+
+        snapshot = create_org_snapshot(
+            org=org,
+            snapshot_type=snapshot_type,
+            triggered_by=employee
+        )
+
+        return Response({
+            "message": "Snapshot created successfully",
+            "snapshot_id": str(snapshot.id),  # ✅ FIX
+        })
+
+
+class OrgSnapshotDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, snapshot_id):
+        employee = get_object_or_404(Employee, user=request.user)
+
+        snapshot = get_object_or_404(
+            OrgSnapshot,
+            id=snapshot_id,
+            organization=employee.parent
+        )
+
+        return Response({
+            "tree": snapshot.tree_data,
+            "matrix": snapshot.matrix_data,
+            "analytics": snapshot.analytics_data,
+            "created_at": snapshot.created_at.isoformat(),  # ✅ SAFE
+            "type": snapshot.snapshot_type,
+        })
+class OrgVersionAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = Employee.objects.get(user=request.user)
+        org = employee.parent
+        return Response({
+            "org_id": str(org.id),
+            "version": org.org_version
+        })
+    
+class MoveEmployeeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        emp_id = request.data.get("employee_id")
+        new_manager_id = request.data.get("new_manager_id")
+
+        employee = Employee.objects.get(id=emp_id)
+        new_manager = Employee.objects.get(id=new_manager_id)
+
+        # 🔥 Use your existing field
+        employee.reporting_manager = new_manager
+        employee.save()   # org_version will auto increment
+
+        return Response({"status": "moved"})

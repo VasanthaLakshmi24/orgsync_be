@@ -4,6 +4,7 @@ from django.utils.translation import gettext as _
 from django.apps import apps
 from .models import DocumentVerification, DocumentAccessRule
 from .models import Employee, Document
+from .models import BusinessUnit, Location,CLevelSeat, CLevelAssignment
 
 
         
@@ -96,10 +97,50 @@ class RolesSerializer(serializers.ModelSerializer):
         model = Roles
         fields = '__all__'
 
+# class DepartmentSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = Department
+#         fields = '__all__'
+#         read_only_fields = ("id", "created_at", "updated_at")
 class DepartmentSerializer(serializers.ModelSerializer):
+    # Readable CXO code (Level-1)
+    reports_to_clevel_code = serializers.CharField(
+        source="reports_to_clevel.seat_code",
+        read_only=True
+    )
+
+    # Readable HOD name (Level-2)
+    department_head_name = serializers.CharField(
+        source="department_head.userName",
+        read_only=True
+    )
+
     class Meta:
         model = Department
-        fields = '__all__'
+        fields = [
+            "id",
+            "department_code",
+
+            "organization",
+            "business_unit",
+
+            "name",
+            "description",
+
+            "parent_department",
+
+            "reports_to_clevel",
+            "reports_to_clevel_code",
+
+            "department_head",
+            "department_head_name",
+
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+
 
 class DesignationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -596,3 +637,50 @@ class DocumentAccessRuleSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["created_by", "created_at"]
+class BusinessUnitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BusinessUnit
+        fields = [
+            "id",
+            "name",
+            "profit_center_code",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+class LocationSerializer(serializers.ModelSerializer):
+    employee_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Location
+        fields = [
+            "id",
+            "name",
+            "address",
+            "timezone_name", 
+            "capacity",
+            "employee_count",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+class CLevelSeatSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CLevelSeat
+        fields = "__all__"
+        read_only_fields = ("id", "seat_code", "created_at", "is_filled","parent")        
+class CLevelAssignmentSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(
+        source="employee.userName",
+        read_only=True
+    )
+    seat_code = serializers.CharField(
+        source="c_level_seat.seat_code",
+        read_only=True
+    )
+
+    class Meta:
+        model = CLevelAssignment
+        fields = "__all__"
+        read_only_fields = ("id", "created_at", "assigned_by")

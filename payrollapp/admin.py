@@ -5,6 +5,9 @@ from import_export import resources
 from .models import EmployeeCertifications, EmployeeSkills
 from .models import EmployeeExperience
 from .models import DocumentAccessRule, DocumentVerification
+from .models import BusinessUnit, Location
+from .models import CLevelSeat, CLevelAssignment
+
 
 
 class ReportResource(resources.ModelResource):
@@ -30,16 +33,65 @@ class UserAdmin(admin.ModelAdmin):
 class RegAdmin(admin.ModelAdmin):
     list_display = ['fullName','email','contactNo','noOfEmployees','token','is_verified']
 
+# class EmployeeAdmin(admin.ModelAdmin):
+#     list_display = ['employeeid','userName','email','get_childs','get_roles','dateOfJoining','dateOfBirth','phoneNumber','parent','designation','department','type','reporting_manager',]
+    
+#     def get_childs(self, obj):
+#         return " ,".join([child.name for child in obj.child.all()])
+    
+#     def get_roles(self, obj):
+#         return ",".join([role.name+" "+ role.child.name for role in obj.roles.all()])
+    
+#     list_filter = ['department','designation','parent','child']
+@admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
-    list_display = ['employeeid','userName','email','get_childs','get_roles','dateOfJoining','dateOfBirth','phoneNumber','parent','designation','department','type','reported_to',]
-    
+    list_display = (
+        'employeeid',
+        'userName',
+        'email',
+        'get_childs',
+        'get_roles',
+        'dateOfJoining',
+        'dateOfBirth',
+        'phoneNumber',
+        'parent',
+        'designation',
+        'department',
+        'type',
+        'reporting_manager',
+    )
+
+    search_fields = (
+        'userName',
+        'email',
+        'employeeid',
+    )
+
+    # ❌ DO NOT put ManyToMany in list_filter
+    list_filter = (
+        'department',
+        'designation',
+        'parent',
+        'type',
+    )
+
+    # ---------- CUSTOM DISPLAY METHODS ----------
+
     def get_childs(self, obj):
-        return " ,".join([child.name for child in obj.child.all()])
-    
+        return ", ".join(
+            child.name for child in obj.child.all()
+        )
+    get_childs.short_description = "Child Accounts"
+
     def get_roles(self, obj):
-        return ",".join([role.name+" "+ role.child.name for role in obj.roles.all()])
-    
-    list_filter = ['department','designation','parent','child']
+        roles = []
+        for role in obj.roles.all():
+            if role.child:
+                roles.append(f"{role.name} ({role.child.name})")
+            else:
+                roles.append(role.name)
+        return ", ".join(roles)
+    get_roles.short_description = "Roles"
 
 class AttendanceAdmin(admin.ModelAdmin):
     list_display = ('employee','parent','child','date','time_in','time_out','net_time_in','status')
@@ -48,6 +100,7 @@ class AttendanceAdmin(admin.ModelAdmin):
 
 class OrganizationAdmin(admin.ModelAdmin):
     list_display = ['orgName','regUser','contactPerson','contactNo',]
+    search_fields = ('orgName', 'regUser__username')
 
 class ChildAccountAdmin(admin.ModelAdmin):
     list_display = ['name','parent','contactPerson','contactNo','bussinessOwner','HrHead','iprestriction']
@@ -189,7 +242,7 @@ admin.site.register(OrgStructureApprovals, OrgStructureApprovalsDisplay)
 admin.site.register(RoleRequests , RolesApprovalDisplay)
 admin.site.register(User, UserAdmin)
 admin.site.register(BreakTime, BreakTimeAdmin)
-admin.site.register(Employee, EmployeeAdmin)
+# admin.site.register(Employee, EmployeeAdmin)
 admin.site.register(Attendance, AttendanceAdmin)
 admin.site.register(leaves, LeavesAdmin)
 admin.site.register(LateLoginRequestObject)
@@ -212,8 +265,8 @@ admin.site.register(Resignation)
 admin.site.register(LeaveApprovalFlow)
 admin.site.register(BroadcastCommunications)
 admin.site.register(MonthlyData, MonthlyDataAdmin)
-admin.site.register(Department)
-admin.site.register(Designation)
+# admin.site.register(Department)
+# admin.site.register(Designation)
 admin.site.register(LeaveBalance, LeaveBalanceAdmin)
 admin.site.register(LeavePolicy)
 admin.site.register(Quotes)
@@ -332,3 +385,180 @@ class DocumentVerificationAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         # optimize FK lookups
         return qs.select_related("employee", "verified_by")
+@admin.register(BusinessUnit)
+class BusinessUnitAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "profit_center_code",
+        "parent",
+        "is_active",
+        "created_at",
+        "updated_at",
+    )
+
+    list_filter = ("is_active", "parent")
+    search_fields = ("name", "profit_center_code")
+    ordering = ("-created_at",)
+
+    readonly_fields = ("created_at", "updated_at")
+@admin.register(Location)
+class LocationAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+       "timezone_name",      
+       "capacity",
+        "parent",
+        "is_active",
+    )
+
+    list_filter = ("is_active", "parent")
+    search_fields = ("name", "address")
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = (
+        "department_code",
+        "name",
+        "organization",
+        "business_unit",
+        "parent_department",
+        "reports_to_clevel",
+        "is_active",
+        "created_at",
+    )
+    list_filter = (
+        "organization",
+        "business_unit",
+        "reports_to_clevel",
+        "is_active",
+    )
+    search_fields = (
+        "department_code",
+        "name",
+    )
+    ordering = ("name",)
+    list_per_page = 25
+
+    readonly_fields = (
+    "department_code",
+    "id",
+    "created_at",
+    "updated_at",
+)
+
+    fieldsets = (
+        ("Basic Information", {
+            "fields": ("department_code", "name", "description")
+        }),
+        ("Organization Mapping", {
+            "fields": ("organization", "business_unit")
+        }),
+        ("Hierarchy (Optional)", {
+            "fields": ("parent_department",)
+        }),
+        ("C-Level Control", {                
+        "fields": ("reports_to_clevel",),
+        "description": "Assign which C-Level seat controls this department"
+    }),
+        ("Status", {
+            "fields": ("is_active",)
+        }),
+        ("Audit Information", {
+            "fields": ("id", "created_at", "updated_at")
+        }),
+    )
+@admin.register(CLevelSeat)
+class CLevelSeatAdmin(admin.ModelAdmin):
+    list_display = (
+        "seat_code",
+        "parent",
+        "cxo_code",
+        "title",
+        "is_filled",
+        "is_active"
+    )
+    readonly_fields = ("seat_code",)
+    search_fields = ("seat_code", "cxo_code", "parent__orgName")
+    list_filter = ("cxo_code", "is_filled", "is_active")
+@admin.register(CLevelAssignment)
+class CLevelAssignmentAdmin(admin.ModelAdmin):
+    list_display = (
+        "c_level_seat",
+        "employee",
+        "is_current",
+        "start_date",
+    )
+    list_filter = ("is_current",)
+# payrollapp/admin.py
+@admin.register(Designation)
+class DesignationAdmin(admin.ModelAdmin):
+    # ===================== LIST VIEW =====================
+    list_display = (
+        "name",
+        "job_family",
+        "level",
+        "band",
+        "parent",
+        "is_active",
+        "created_at",
+    )
+
+    list_filter = (
+        "is_active",
+        "job_family",
+        "level",
+        "parent",
+    )
+
+    search_fields = (
+        "name",
+        "band",
+        "job_family",
+        "level",
+    )
+
+    ordering = ("name",)
+
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+    )
+
+    # ===================== ACTIONS =====================
+    actions = ["disable_designations"]
+
+    def disable_designations(self, request, queryset):
+        queryset.update(is_active=False)
+
+    disable_designations.short_description = "Disable selected designations"
+
+    # ===================== PERMISSIONS =====================
+    def _allowed(self, request):
+        user = request.user
+
+        if not user.is_authenticated:
+            return False
+
+        if user.is_superuser:
+            return True
+
+        if not hasattr(user, "employee"):
+            return False
+
+        return user.employee.role in ["HR_HEAD", "BUSINESS_OWNER"]
+
+    def has_module_permission(self, request):
+        return self._allowed(request)
+
+    def has_view_permission(self, request, obj=None):
+        return self._allowed(request)
+
+    def has_add_permission(self, request):
+        return self._allowed(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self._allowed(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return False

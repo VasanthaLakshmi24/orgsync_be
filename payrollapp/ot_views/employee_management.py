@@ -142,6 +142,7 @@ def createobjs(request):
 
 
 
+
 class OnboardProdEmployee(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -284,144 +285,317 @@ class OnboardProdEmployee(APIView):
 
 
 
+
+# class OnboardEmployee(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         user = request.user
+#         childId = request.data.get('childId', None)
+
+#         try:
+#             parent = Organization.objects.get(regUser=user)
+#         except Organization.DoesNotExist:
+#             try:
+#                 userEmp = Employee.objects.get(user=user)
+#                 parent = userEmp.parent
+#             except Employee.DoesNotExist:
+#                 return Response({"error": "Parent organization or employee not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         try:
+#             child = ChildAccount.objects.get(id=childId)
+#         except ChildAccount.DoesNotExist:
+#             child = None
+
+#         designationId = request.data.get("designation", None)
+#         empid = request.data.get("empid")
+#         departmentId = request.data.get("department", None)
+#         reported_to_id = request.data.get("reported_to", None)
+#         reported_to = None
+#         if reported_to_id:
+#             try:
+#                 reported_to = Employee.objects.get(id=reported_to_id).user
+#             except Employee.DoesNotExist:
+#                 return Response({"error": "Reported-to employee not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         designation = Designation.objects.get(id=designationId) if designationId else None
+#         designation_name = designation.name.upper() if designation else None
+#         is_c_level = designation_name in ["CEO", "CTO", "CFO", "CHRO", "CMO"]
+
+#         department = Department.objects.get(id=departmentId) if departmentId else None
+#         allowances = request.data.get("allowances", [])
+
+#         types = request.data.get("type")
+#         gender = request.data.get("gender")
+#         userName = request.data.get("userName")
+#         email = request.data.get("email")
+#         dateOfBirth = request.data.get("dateOfBirth")
+#         phoneNumber = request.data.get("phoneNumber")
+#         role = request.data.get("role")
+#         dateOfJoining = request.data.get("dateOfJoining")
+#         ctc = request.data.get("ctc")
+#         gross = request.data.get("grossSalary")
+#         basic = request.data.get("basicSalary")
+#         employer_pf = request.data.get("pfDeduction")
+#         employer_esi = request.data.get("esiDeduction")
+#         jobdescription = request.data.get("jobdescription")
+#         kras = request.data.get("kras")
+#         careerpath = request.data.get("careerpath")
+
+#         users = Employee.objects.filter(parent=parent)
+#         if parent.Account.noOfEmployees <= users.count():
+#             return Response({"error": f"Your subscribed plan allows you to only create {parent.Account.noOfEmployees} employee accounts."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         password = generate_random_password()
+
+#         try:
+#             with transaction.atomic():
+#                 employee = Employee.objects.create(
+#                     employeeid=empid,
+#                     careerpath=careerpath,
+#                     jobdescription=jobdescription,
+#                     kras=kras,
+#                     parent=parent,
+#                     designation=designation,
+#                     department=department,
+#                     type=types,
+#                     gender=gender,
+#                     userName=userName,
+#                     email=email,
+#                     dateOfBirth=dateOfBirth,
+#                     phoneNumber=phoneNumber,
+#                     dateOfJoining=dateOfJoining,
+#                     ctc=ctc
+#                 )
+
+#                 empsalary = EmployeePay.objects.create(
+#                     employee=employee,
+#                     basic=basic,
+#                     gross=gross,
+#                     ctc = ctc,
+#                     employer_esi=employer_esi,
+#                     employer_pf=employer_pf
+#                 )
+
+#                 for allowance_data in allowances:
+#                     allowance_name = allowance_data.get("name")
+#                     allowance_amount = allowance_data.get("value")
+#                     if allowance_name != 'HRA':
+#                         allowance = Allowance.objects.get(parent=parent, child=child, name=allowance_name)
+#                         EmployeeAllowance.objects.create(allowance=allowance, employee=employee, amount=allowance_amount)
+
+#                 employee.child.add(child)
+#                 employee.main_child = child
+#                 if child:
+#                     leavePolicy = LeavePolicy.objects.get(parent=parent, child=child)
+#                 else:
+#                     leavePolicy = LeavePolicy.objects.get(parent=parent)
+
+#                 leave_balance = leavePolicy.leaves_per_year / 12 if leavePolicy else 0
+#                 LeaveBalance.objects.create(employee=employee, parent=parent, child=child, current_leave_balance=leave_balance)
+
+#                 EmployeeOccasions.objects.create(parent=parent, child=child, employee=employee, type="birthday", date=dateOfBirth)
+
+#                 # if reported_to:
+#                 #     employee.reported_to = reported_to
+#                 # else:
+#                 #     employee.reported_to = request.user
+#                 # employee.save()
+#                  # ================= REPORTING LOGIC =================
+#                 designation_name = designation.name.upper() if designation else None
+#                 if role == "BUSINESS_OWNER":
+#                     employee.reported_to = None
+#                 elif designation_name == "CEO":
+#                     business_owner_emp = Employee.objects.filter( parent=parent, user=parent.regUser).first()
+#                     if business_owner_emp:
+#                         employee.reported_to = business_owner_emp.user
+#                     elif designation_name in ["CTO", "CFO", "CHRO", "CMO"]:
+#                         ceo_emp = Employee.objects.filter(parent=parent, designation__name__iexact="CEO").first()
+#                         if not ceo_emp:
+#                             return Response( {"error": "CEO must be created before adding other C-Level executives"},
+#                                             status=status.HTTP_400_BAD_REQUEST )
+#                             employee.reported_to = ceo_emp.user
+#                         else:
+#                             if reported_to:
+#                                 employee.reported_to = reported_to
+#                             else:
+#                                 employee.reported_to = None
+#                                 employee.save()
+
+#                 if role == 'BUSINESS_OWNER':
+#                     givenrole = Roles.objects.get_or_create(name=role, parent=parent, child=child, user=account)[0]
+#                     child.bussinessOwner = account
+#                     child.save()
+#                     account.save()
+#                 elif role != 'EMPLOYEE':
+#                     bo = userEmp.reported_to
+#                     RoleRequests.objects.create(sender=user, receiver=bo, role=role, parent=parent, child=child, user=account)
+#                     notification_message = f"Dear {bo.username}, {userEmp.userName} has requested approval to add {userName} as {role} in our organization."
+#                     Notification.objects.create(sender=user, receiver=bo, message=notification_message)
+
+#                 welcome_message = f"Dear {userName}, your account has been created. Username: {account.email}, Password: {password}. Please login at https://www.gaorgsync.com."
+#                 sendemail('Account Created', welcome_message, [account.email])
+
+#             return Response({"message": "Employee onboarded successfully"}, status=status.HTTP_201_CREATED)
+
+#         except Exception as e:
+#             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class OnboardEmployee(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        data = request.data
         user = request.user
-        childId = request.data.get('childId', None)
+        childId = data.get("childId")
 
+        # ================= ORG RESOLUTION =================
         try:
             parent = Organization.objects.get(regUser=user)
+            userEmp = None
         except Organization.DoesNotExist:
             try:
                 userEmp = Employee.objects.get(user=user)
                 parent = userEmp.parent
             except Employee.DoesNotExist:
-                return Response({"error": "Parent organization or employee not found."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"error": "Parent organization not found"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        try:
-            child = ChildAccount.objects.get(id=childId)
-        except ChildAccount.DoesNotExist:
-            child = None
+        child = None
+        if childId:
+            child = ChildAccount.objects.filter(id=childId).first()
 
-        designationId = request.data.get("designation", None)
-        empid = request.data.get("empid")
-        departmentId = request.data.get("department", None)
-        reported_to_id = request.data.get("reported_to", None)
-        reported_to = None
-        if reported_to_id:
-            try:
-                reported_to = Employee.objects.get(id=reported_to_id).user
-            except Employee.DoesNotExist:
-                return Response({"error": "Reported-to employee not found."}, status=status.HTTP_400_BAD_REQUEST)
+        # ================= BASIC DATA =================
+        role = data.get("role")
+        designation = Designation.objects.filter(id=data.get("designation")).first()
+        designation_name = designation.name.upper() if designation else None
+        is_c_level = role == "C_LEVEL"
 
-        designation = Designation.objects.get(id=designationId) if designationId else None
-        department = Department.objects.get(id=departmentId) if departmentId else None
-        allowances = request.data.get("allowances", [])
 
-        types = request.data.get("type")
-        gender = request.data.get("gender")
-        userName = request.data.get("userName")
-        email = request.data.get("email")
-        dateOfBirth = request.data.get("dateOfBirth")
-        phoneNumber = request.data.get("phoneNumber")
-        role = request.data.get("role")
-        dateOfJoining = request.data.get("dateOfJoining")
-        ctc = request.data.get("ctc")
-        gross = request.data.get("grossSalary")
-        basic = request.data.get("basicSalary")
-        employer_pf = request.data.get("pfDeduction")
-        employer_esi = request.data.get("esiDeduction")
-        jobdescription = request.data.get("jobdescription")
-        kras = request.data.get("kras")
-        careerpath = request.data.get("careerpath")
+        department = Department.objects.filter(id=data.get("department")).first()
 
-        users = Employee.objects.filter(parent=parent)
-        if parent.Account.noOfEmployees <= users.count():
-            return Response({"error": f"Your subscribed plan allows you to only create {parent.Account.noOfEmployees} employee accounts."}, status=status.HTTP_400_BAD_REQUEST)
+        # ================= PLAN LIMIT =================
+        if Employee.objects.filter(parent=parent).count() >= parent.Account.noOfEmployees:
+            return Response(
+                {"error": "Employee limit exceeded"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         password = generate_random_password()
+        email = data.get("email")
+        if User.objects.filter(email=email).exists():
+            return Response(
+        {"error": "An account with this email already exists"},
+        status=status.HTTP_400_BAD_REQUEST
+    )
 
         try:
             with transaction.atomic():
+
+                # ================= CREATE USER =================
+                username = data.get("userName").replace(" ", "_")
+                account = User.objects.create_user(
+                    username=username,
+                    email=data.get("email"),
+                    password=password
+                )
+
+                # ================= CREATE EMPLOYEE =================
                 employee = Employee.objects.create(
-                    employeeid=empid,
-                    careerpath=careerpath,
-                    jobdescription=jobdescription,
-                    kras=kras,
+                    user=account,
                     parent=parent,
+                    employeeid=data.get("empid"),
+                    userName=data.get("userName"),
+                    email=data.get("email"),
+                    phoneNumber=data.get("phoneNumber"),
+                    gender=data.get("gender"),
+                    type=data.get("type"),
+                    dateOfBirth=data.get("dateOfBirth"),
+                    dateOfJoining=data.get("dateOfJoining"),
                     designation=designation,
                     department=department,
-                    type=types,
-                    gender=gender,
-                    userName=userName,
-                    email=email,
-                    dateOfBirth=dateOfBirth,
-                    phoneNumber=phoneNumber,
-                    dateOfJoining=dateOfJoining,
-                    ctc=ctc
                 )
-
-                empsalary = EmployeePay.objects.create(
-                    employee=employee,
-                    basic=basic,
-                    gross=gross,
-                    ctc = ctc,
-                    employer_esi=employer_esi,
-                    employer_pf=employer_pf
-                )
-
-                for allowance_data in allowances:
-                    allowance_name = allowance_data.get("name")
-                    allowance_amount = allowance_data.get("value")
-                    if allowance_name != 'HRA':
-                        allowance = Allowance.objects.get(parent=parent, child=child, name=allowance_name)
-                        EmployeeAllowance.objects.create(allowance=allowance, employee=employee, amount=allowance_amount)
 
                 employee.child.add(child)
                 employee.main_child = child
-                if child:
-                    leavePolicy = LeavePolicy.objects.get(parent=parent, child=child)
+
+                # ================= REPORTING LOGIC =================
+                if designation_name == "CEO":
+                    # CEO → Business Owner
+                    bo_emp = Employee.objects.filter(
+                        parent=parent,
+                        user=parent.regUser
+                    ).first()
+
+                    if not bo_emp:
+                        return Response(
+                            {"error": "Business Owner employee not found"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+
+                    employee.reported_to = bo_emp
+
+                elif designation_name in ["CTO", "CFO", "CHRO", "CMO"]:
+                    # Other C-levels → CEO
+                    ceo_emp = Employee.objects.filter(
+                        parent=parent,
+                        designation__name__iexact="CEO"
+                    ).first()
+
+                    if not ceo_emp:
+                        return Response(
+                            {"error": "Create CEO before adding other C-level executives"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+
+                    employee.reported_to = ceo_emp
+
                 else:
-                    leavePolicy = LeavePolicy.objects.get(parent=parent)
+                    # Normal employees
+                    reported_to_id = data.get("reported_to")
+                    if reported_to_id:
+                        manager = Employee.objects.filter(id=reported_to_id).first()
+                        employee.reported_to = manager
 
-                leave_balance = leavePolicy.leaves_per_year / 12 if leavePolicy else 0
-                LeaveBalance.objects.create(employee=employee, parent=parent, child=child, current_leave_balance=leave_balance)
-
-                EmployeeOccasions.objects.create(parent=parent, child=child, employee=employee, type="birthday", date=dateOfBirth)
-
-                if reported_to:
-                    employee.reported_to = reported_to
-                else:
-                    employee.reported_to = request.user
                 employee.save()
 
-                new_user_name = employee.userName.replace(" ", "_")
-                account = User.objects.create_user(username=new_user_name, email=email, password=password)
-                employee.user = account
-                employee.save()
+                # ================= PAY (OPTIONAL FOR C-LEVEL) =================
+                if not is_c_level:
+                    EmployeePay.objects.create(
+                        employee=employee,
+                        basic=data.get("basicSalary"),
+                        gross=data.get("grossSalary"),
+                        ctc=data.get("ctc"),
+                        employer_pf=data.get("pfDeduction"),
+                        employer_esi=data.get("esiDeduction"),
+                    )
 
-                if role == 'BUSINESS_OWNER':
-                    givenrole = Roles.objects.get_or_create(name=role, parent=parent, child=child, user=account)[0]
-                    child.bussinessOwner = account
-                    child.save()
-                    account.save()
-                elif role != 'EMPLOYEE':
-                    bo = userEmp.reported_to
-                    RoleRequests.objects.create(sender=user, receiver=bo, role=role, parent=parent, child=child, user=account)
-                    notification_message = f"Dear {bo.username}, {userEmp.userName} has requested approval to add {userName} as {role} in our organization."
-                    Notification.objects.create(sender=user, receiver=bo, message=notification_message)
+                # ================= LEAVE =================
+                leavePolicy = LeavePolicy.objects.filter(parent=parent, child=child).first()
+                LeaveBalance.objects.create(
+                    employee=employee,
+                    parent=parent,
+                    child=child,
+                    current_leave_balance=(leavePolicy.leaves_per_year / 12) if leavePolicy else 0
+                )
 
-                welcome_message = f"Dear {userName}, your account has been created. Username: {account.email}, Password: {password}. Please login at https://www.gaorgsync.com."
-                sendemail('Account Created', welcome_message, [account.email])
+                # ================= EMAIL =================
+                sendemail(
+                    "Account Created",
+                    f"Dear {employee.userName}, Username: {account.email}, Password: {password}",
+                    [account.email]
+                )
 
-            return Response({"message": "Employee onboarded successfully"}, status=status.HTTP_201_CREATED)
+                return Response(
+                    {"message": "Employee onboarded successfully"},
+                    status=status.HTTP_201_CREATED
+                )
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
 
 class GetCreateEmployee(APIView):
     def post(self, request):
@@ -449,7 +623,6 @@ class GetCreateEmployee(APIView):
             return Response({'data':data},status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
 class CreateEmployee(APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request):
@@ -633,7 +806,9 @@ class CreateEmployee(APIView):
                 'gender' : userDetails.gender,
                 'userName' : userDetails.userName,
                 'email' : userDetails.email,
-                'rm':userDetails.reported_to.username,
+                'rm': userDetails.reporting_manager.userName if userDetails.reporting_manager else None,
+
+                # 'rm':userDetails.reported_to.username,
                 'jobdescription':userDetails.jobdescription,
                 'kras':userDetails.kras,
                 'careerpath':userDetails.careerpath,
@@ -1190,12 +1365,6 @@ class bulkUpload(APIView):
                 return Response({"message": "Registration successful"}, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-
-
-
 
 class preJoinEmployee(APIView):
     permission_classes = [IsAuthenticated]

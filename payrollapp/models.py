@@ -2,11 +2,9 @@ from django.dispatch import receiver
 from django.db import models
 from .manager import *
 from django.contrib.auth.models import AbstractUser
-from django.db import models
 from django.utils import timezone
 import uuid
 from django.contrib.auth.models import AbstractUser, BaseUserManager,Permission,Group
-from django.db import models
 from django.db.models.signals import post_delete, post_save , pre_save
 from datetime import datetime
 import calendar
@@ -22,6 +20,7 @@ from cryptography.hazmat.backends import default_backend
 import base64
 import os
 from django.utils import timezone
+from django.db.models.signals import post_save
 
  
 
@@ -132,6 +131,12 @@ class Organization(models.Model):
     companyTanNo = models.CharField(max_length = 10)
     timestamp = models.DateTimeField(auto_now_add=True)
     quote=models.TextField(max_length=50000000,null=True, blank=True)
+    org_version = models.PositiveIntegerField(default=1)
+
+    org_structure_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="Updated whenever org structure changes"
+    )
     def __str__(self):
         return self.orgName
 
@@ -182,10 +187,11 @@ class ChildAccount(models.Model):
 class Roles(models.Model):
     id=models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    child = models.ForeignKey(
-        ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
-    name = models.CharField(max_length=50, unique=True)
+    child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
+    name = models.CharField(max_length=50)
     user = models.ForeignKey(User,on_delete = models.SET_NULL, blank=True, null=True,related_name = "assigned_user")
+    class Meta:
+        unique_together = ("parent", "child", "name")
     def __str__(self):
         return self.name
 
@@ -251,26 +257,103 @@ class OrgStructureApprovals(models.Model):
     def set_designations(self, designations):
         self.designations = ','.join(designations)
 
+class CLevelSeat(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    parent = models.ForeignKey(
+        "Organization",
+        on_delete=models.CASCADE,
+        related_name="c_level_seats"
+    )
+    cxo_code = models.CharField(
+        max_length=10,
+        help_text="CEO / CFO / CMO etc."
+    )
+    seat_code = models.CharField(
+        max_length=20,
+        unique=True,
+        editable=False
+    )
+    title = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+    is_filled = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("parent", "cxo_code")
+        ordering = ["seat_code"]
+    def save(self, *args, **kwargs):
+        """
+        Generates CL01-CEO, CL02-CFO per organization
+        """
+        if not self.seat_code:
+            count = CLevelSeat.objects.filter(parent=self.parent).count() + 1
+            self.seat_code = f"CL{str(count).zfill(2)}-{self.cxo_code.upper()}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.seat_code
+class CLevelAssignment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    c_level_seat = models.ForeignKey(
+        CLevelSeat,
+        on_delete=models.CASCADE,
+        related_name="assignments" )
+    employee = models.ForeignKey(
+        "Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True )
+    start_date = models.DateField(default=timezone.now)
+    is_current = models.BooleanField(default=True)
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering = ["-start_date"]
+    def save(self, *args, **kwargs):
+        if self.is_current:
+            CLevelAssignment.objects.filter(
+                c_level_seat=self.c_level_seat,
+                is_current=True
+            ).exclude(id=self.id).update(
+                is_current=False,
+            )
+            if self.employee:
+                CLevelAssignment.objects.filter(
+                    employee=self.employee,
+                    is_current=True
+                ).exclude(id=self.id).update(
+                    is_current=False,
+                )
+        super().save(*args, **kwargs)
+    def __str__(self):
+        return f"{self.c_level_seat.seat_code} → {self.employee.userName if self.employee else 'Vacant'}"
+@receiver(post_save, sender=CLevelAssignment)
+def sync_clevel_seat_status(sender, instance, **kwargs):
+    seat = instance.c_level_seat
+    seat.is_filled = CLevelAssignment.objects.filter(
+        c_level_seat=seat,
+        is_current=True
+    ).exists()
+    seat.save(update_fields=["is_filled"])
+
+
 class Employee(models.Model):
     employeeid=models.CharField(null=True,blank=True,max_length=15)
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User,on_delete=models.SET_NULL,blank=True,null=True)
-    parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    child = models.ManyToManyField(ChildAccount,blank=True,null=True,related_name="child")
+    parent = models.ForeignKey(Organization, on_delete=models.CASCADE,related_name="employees")
+    child = models.ManyToManyField(ChildAccount,blank=True,related_name="employees" )
     main_child = models.ForeignKey(ChildAccount,blank=True,null=True,on_delete=models.CASCADE,related_name="main_child")
     roles=models.ManyToManyField(Roles,blank=True, related_name="employees")
-
     dateOfBirth=models.DateField(null=True,blank=True)
-    designation = models.ForeignKey(
-        'Designation', on_delete=models.SET_NULL, null=True, blank=True)
-    department = models.ForeignKey(
-        'Department', on_delete=models.SET_NULL, null=True, blank=True)
-    type = models.CharField(max_length=15, choices=(
-        ('part_time', 'Part Time'),
-        ('full_time', 'Full Time'),
-        ('contract', 'Contract'),
-        ('other', 'Other'),
-    ))
+    designation = models.ForeignKey('Designation', on_delete=models.SET_NULL, null=True, blank=True, related_name="employees")
+    department = models.ForeignKey('Department', on_delete=models.SET_NULL, null=True, blank=True,related_name="employees")
+    type = models.CharField(max_length=15, choices=(('part_time', 'Part Time'),('full_time', 'Full Time'), ('contract', 'Contract'),('other', 'Other'),))
     emp_type = models.CharField(max_length=15, choices=(
         ('Blue-Collar', 'Blue-Collar'), 
         ('White-Collar', 'White-Collar'),
@@ -288,13 +371,34 @@ class Employee(models.Model):
         ('exit', 'exit'),
         ('prejoining', 'prejoining'),
         ),default='onroll')
-    reported_to = models.ForeignKey(User,on_delete= models.SET_NULL,null=True,blank=True,related_name="REPORTING_MANAGER")
+    # reported_to = models.ForeignKey(User,on_delete= models.SET_NULL,null=True,blank=True,related_name="REPORTING_MANAGER")
     dateOfJoining=models.DateField(null=True,blank=True)
     ctc=models.DecimalField(max_digits=15, decimal_places=2,null=True,blank=True)
     jobdescription=models.TextField(max_length=50000,null=True, blank=True)
     kras=models.TextField(max_length=50000,null=True, blank=True)
     careerpath=models.TextField(max_length=50000,null=True, blank=True)
+    location = models.ForeignKey(
+        "Location",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="employees"
+    )
+    
 
+    reporting_manager = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="direct_reports"
+    )
+    matrix_managers = models.ManyToManyField(
+        "self",
+        symmetrical=False,
+        blank=True,
+        related_name="matrix_reportees"
+    )
     def __str__(self):
         return self.userName
 
@@ -309,8 +413,8 @@ class Allowance(models.Model):
         return self.name
 
 class EmployeeAllowance(models.Model):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="employee_allowances")
-    allowance = models.ForeignKey(Allowance, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="employee_allowances")
+    allowance = models.ForeignKey("Allowance", on_delete=models.CASCADE)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
 
     def __str__(self):
@@ -329,8 +433,8 @@ class ProductionAllowance(models.Model):
         return self.name
 
 class EmployeeProdAllowance(models.Model):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="prod_employee_allowances")
-    allowance = models.ForeignKey(ProductionAllowance, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="prod_employee_allowances")
+    allowance = models.ForeignKey("ProductionAllowance", on_delete=models.CASCADE)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
 
     def __str__(self):
@@ -338,7 +442,7 @@ class EmployeeProdAllowance(models.Model):
 
 
 class EmployeePay(models.Model):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="employee_pays")
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="employee_pays")
     ctc=models.DecimalField(max_digits=15, decimal_places=2)
     gross=models.DecimalField(max_digits=15, decimal_places=2)
     basic=models.DecimalField(max_digits=15, decimal_places=2)
@@ -349,7 +453,7 @@ class EmployeePay(models.Model):
         return self.employee.userName
 
 class ProdEmployeePay(models.Model):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="prod_employee_pays")
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="prod_employee_pays")
     per_day_wage = models.DecimalField(max_digits=15, decimal_places=2)
     employer_pf = models.DecimalField(max_digits=15,decimal_places=2)
     employee_pf = models.DecimalField(max_digits=15,decimal_places=2)
@@ -361,7 +465,7 @@ class ProdEmployeePay(models.Model):
 
 class IPExceptions(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.SET_NULL,null=True,blank=True)
+    employee = models.ForeignKey("Employee", on_delete=models.SET_NULL,null=True,blank=True)
     addedby = models.ForeignKey(User, on_delete = models.SET_NULL,null = True,blank = True)
     timestamp = models.DateTimeField(auto_now_add=True)
 
@@ -375,8 +479,11 @@ def delete_employee_user(sender, instance, **kwargs):
 
 @receiver(pre_save, sender='payrollapp.Employee')
 def update_user(sender, instance, **kwargs):
-    if instance.status == 'exit':
-        user_instance.delete()
+    if instance.status == 'exit' and instance.user:
+        instance.user.delete()
+
+    # if instance.status == 'exit':
+        # user_instance.delete()
     if instance.user:
         user_instance = instance.user
         user_instance.email = instance.email  
@@ -391,29 +498,12 @@ class Notification(models.Model):
     date = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
 
-class Department(models.Model):
-    id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=100)
-    child=models.ForeignKey(ChildAccount,on_delete=models.CASCADE,blank=True,null=True)
-    parent=models.ForeignKey(Organization,on_delete=models.CASCADE)
-
-    def __str__(self):
-        return self.name
-
-class Designation(models.Model):
-    id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=100)
-    child=models.ForeignKey(ChildAccount,on_delete=models.CASCADE,blank=True,null=True,related_name = 'des_child')
-    parent=models.ForeignKey(Organization,on_delete=models.CASCADE,related_name = 'des_parent')
-    
-    def __str__(self):
-        return self.name
 
 class Log(models.Model):
-    loginby = models.ForeignKey(Employee, on_delete=models.SET_NULL,null=True,blank=True,related_name="LoginBy")
+    loginby = models.ForeignKey("Employee", on_delete=models.SET_NULL,null=True,blank=True,related_name="LoginBy")
     log_in = models.DateTimeField()
     log_out = models.DateTimeField()
-    employee_Id_on_whom_modification_done = models.ForeignKey(Employee, on_delete=models.SET_NULL,null=True,blank=True)
+    employee_Id_on_whom_modification_done = models.ForeignKey("Employee", on_delete=models.SET_NULL,null=True,blank=True)
     Child_ID = models.ForeignKey(ChildAccount, on_delete=models.SET_NULL,null=True,blank=True)
     reason = models.CharField(max_length=50)
     modification_before = models.TextField()
@@ -461,9 +551,9 @@ class EmployeeOptHoliday(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
     child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     holiday = models.ForeignKey(OptionalHolidays, on_delete=models.CASCADE,null=True,blank=True)
-    workDelegated = models.ForeignKey(Employee, on_delete=models.SET_NULL,null=True, blank=True,related_name='workDelegated')
+    workDelegated = models.ForeignKey("Employee", on_delete=models.SET_NULL,null=True, blank=True,related_name='workDelegated')
     comments = models.TextField(null=True, blank=True)
     reason=models.TextField(null = True, blank = True)
     timestamp=models.DateField(auto_now_add=True)
@@ -479,7 +569,7 @@ class AssetsOwnedByOrganisation(models.Model):
 
 class EmployeeBasicDetails(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     firstName=models.CharField(max_length=100,null=True,blank=True)
     lastName=models.CharField(max_length=100,null=True,blank=True)
     middleName=models.CharField(max_length=100,null=True,blank=True)
@@ -499,13 +589,13 @@ class EmployeeBasicDetails(models.Model):
 
 class EmployeeBankDetails(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     bankName=models.CharField(max_length=100,null=True,blank=True)
     ifsc=models.CharField(max_length=100,null=True,blank=True)
     bankAcNo=models.CharField(max_length=100,null=True,blank=True)
 class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     profile = models.ImageField(upload_to='Profiles', null=True, blank=True)
     aadhar = models.FileField(upload_to='Aadhaars', null=True, blank=True)
     panCard = models.FileField(upload_to='PanCards', null=True, blank=True)
@@ -513,8 +603,6 @@ class Document(models.Model):
     pfdeclaration = models.FileField(upload_to='pfDeclaration', null=True, blank=True)
     esi_card = models.FileField(upload_to='esi_cards/', null=True, blank=True)  # NEW FIELD
     # document_name = models.CharField(max_length=100)
-
-
     def __str__(self):
         return f"Document for {self.employee}"
 
@@ -556,7 +644,7 @@ class Document(models.Model):
 
 class EmployeeRelation(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     relationName = models.CharField(max_length=100,null=True,blank=True)
     relationType = models.CharField(max_length=20,null=True,blank=True)
     relationAge = models.CharField(max_length=3,null=True,blank=True)
@@ -565,7 +653,7 @@ class EmployeeRelation(models.Model):
     is_editable = models.BooleanField(default=False)
 class EmployeeEducationDetails(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)    
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)    
     institution = models.CharField(max_length=100)
     degree = models.CharField(max_length=20)
     field_of_study = models.CharField(max_length=100)
@@ -661,7 +749,7 @@ class EmployeeExperience(models.Model):
 
 class EmployeeReference(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     Organization_name = models.CharField(max_length=20,null=True,blank=True)
     Designation = models.CharField(max_length=20,null=True,blank=True)
     Department_name = models.CharField(max_length=20,null=True,blank=True)
@@ -672,7 +760,7 @@ class EmployeeReference(models.Model):
 
 class Attendance(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     child=models.ForeignKey(ChildAccount,on_delete=models.CASCADE,blank=True,null=True)
     parent=models.ForeignKey(Organization,on_delete=models.CASCADE,blank=True,null=True)
     date = models.DateField()
@@ -695,14 +783,14 @@ def create_null_objects(sender,instance,created,**kwargs):
 
 class leaves(models.Model):
     id=models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE , related_name='employee')
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE , related_name='employee')
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
     child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
     fromDate = models.DateField()
     toDate = models.DateField()
     timeStamp = models.DateTimeField(auto_now_add=True)
     type = models.CharField(max_length=20)
-    workDelegated =  models.ForeignKey(Employee, on_delete=models.SET_NULL,null=True, blank=True)
+    workDelegated =  models.ForeignKey("Employee", on_delete=models.SET_NULL,null=True, blank=True)
     comments = models.TextField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=[(
         'pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected'),('cancelled', 'Cancelled')],default='pending')
@@ -751,7 +839,7 @@ class LeaveApprovalFlow(models.Model):
 
 class LeaveBalance(models.Model):
     id=models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE , related_name='employee_lb')
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE , related_name='employee_lb')
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
     child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
     carry_forwarded_leave_balance = models.DecimalField(max_digits=4, decimal_places=2,default=0)
@@ -799,7 +887,7 @@ class PfSlabs(models.Model):
 
 class EmployeePayroll(models.Model):
     id=models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE , related_name='employee_pay')
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE , related_name='employee_pay')
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
     child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
     month = models.IntegerField()
@@ -825,8 +913,8 @@ class EmployeePayroll(models.Model):
 
 
 class PayrollAllowance(models.Model):
-    payroll = models.ForeignKey(EmployeePayroll, on_delete=models.CASCADE, related_name="payroll_allowances")
-    allowance = models.ForeignKey(Allowance, on_delete=models.CASCADE)
+    payroll = models.ForeignKey("EmployeePayroll", on_delete=models.CASCADE, related_name="payroll_allowances")
+    allowance = models.ForeignKey("Allowance", on_delete=models.CASCADE)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
 
     def __str__(self):
@@ -834,7 +922,7 @@ class PayrollAllowance(models.Model):
 
 
 class Assets(models.Model):
-    department = models.ForeignKey(Department,on_delete=models.SET_NULL,null=True,blank=True)
+    department = models.ForeignKey("Department",on_delete=models.SET_NULL,null=True,blank=True)
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
     child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
     name = models.CharField(max_length=100)
@@ -843,22 +931,22 @@ class Assets(models.Model):
         return f"{self.name}"
 
 class AssetDetails(models.Model):
-    asset = models.ForeignKey(Assets, on_delete=models.SET_NULL,null=True,blank=True)
+    asset = models.ForeignKey("Assets", on_delete=models.SET_NULL,null=True,blank=True)
     serial_number = models.CharField(max_length=100)
     configuration = models.TextField()
     def __str__(self):
         return f"{self.asset.name} - {self.serial_number}"
 
 class EmployeeAssetForm(models.Model):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     timestamp = models.DateField(auto_now_add=True)
     assetdetails = models.ForeignKey(AssetDetails,on_delete=models.SET_NULL,null=True,blank=True)
     is_issued = models.BooleanField(default=False)
-    issuedBy = models.ForeignKey(Employee, on_delete=models.CASCADE,related_name='asset_issued_by')
+    issuedBy = models.ForeignKey("Employee", on_delete=models.CASCADE,related_name='asset_issued_by')
 
 class RaiseTicket(models.Model):
-    employeeID = models.ForeignKey(Employee, on_delete=models.CASCADE)
-    Ticket_to_Department = models.ForeignKey(Department,on_delete=models.SET_NULL,null=True,blank=True)
+    employeeID = models.ForeignKey("Employee", on_delete=models.CASCADE)
+    Ticket_to_Department = models.ForeignKey("Department",on_delete=models.SET_NULL,null=True,blank=True)
     Issue = models.CharField(max_length=50)
     Comments_Or_Cause_of_issue = models.CharField(max_length = 100)
     approved = models.BooleanField(default=False)
@@ -942,7 +1030,7 @@ class EmployeeLeaves(models.Model):
     month=models.IntegerField()
     year = models.IntegerField()
     leaves=models.DecimalField(max_digits=4, decimal_places=2,default=0.0)
-    employee=models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee=models.ForeignKey("Employee", on_delete=models.CASCADE)
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
     child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
     lop=models.DecimalField(max_digits=10, decimal_places=2)
@@ -1024,6 +1112,7 @@ class LateLoginRequestObject(models.Model):
     ),default = 'underreview')
     reported_to=models.ForeignKey(Employee,on_delete=models.CASCADE,related_name="reciever")
 
+
 class EmployeeOccasions(models.Model):
     parent = models.ForeignKey(Organization, on_delete=models.CASCADE)
     child = models.ForeignKey(ChildAccount, on_delete=models.CASCADE, blank=True, null=True)
@@ -1037,7 +1126,7 @@ class EmployeeOccasions(models.Model):
 
 class BreakTime(models.Model):
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     child=models.ForeignKey(ChildAccount,on_delete=models.CASCADE,blank=True,null=True)
     parent=models.ForeignKey(Organization,on_delete=models.CASCADE,blank=True,null=True)
     date = models.DateField()
@@ -1082,7 +1171,7 @@ class Quotes(models.Model):
     quote=models.TextField(null=True,blank=True)
 
 class IPRequest(models.Model):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     ip=models.CharField(null=True,blank=True,max_length=50)
     status = models.CharField(max_length=15, choices=(
         ('approved', 'Approved'),
@@ -1143,7 +1232,7 @@ def update_monthly_data(sender, instance, created, **kwargs):
 class Form12BB(models.Model):
     # Employee details
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     employee_name = models.CharField(max_length=255)
     employee_address = models.TextField()
     pan = models.CharField(max_length=10)
@@ -1192,7 +1281,7 @@ def evidence_upload_path(instance, filename):
 class Evidence(models.Model):
     form_12bb = models.ForeignKey(Form12BB, on_delete=models.CASCADE, related_name="evidences")
     id = models.UUIDField(primary_key=True,default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE)
     hra = models.FileField(upload_to=evidence_upload_path,null=True,blank=True)
     leave_travel_consession = models.FileField(upload_to=evidence_upload_path,null=True,blank=True)
     interest_paid = models.FileField(upload_to=evidence_upload_path,null=True,blank=True)
@@ -1217,10 +1306,15 @@ class Conversation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        participants = self.participants.all()
-        if participants.count() == 2:
+        participants = list(self.participants.all())
+        if len(participants) == 2:
             return f"Conversation between {participants[0].employee.userName} and {participants[1].employee.userName}"
-        return "Conversation with insufficient participants"
+        return "Conversation"
+
+        # participants = self.participants.all()
+        # if participants.count() == 2:
+        #     return f"Conversation between {participants[0].employee.userName} and {participants[1].employee.userName}"
+        # return "Conversation with insufficient participants"
 
     def is_valid_participant(self, employee):
         return self.participants.filter(employee=employee).exists()
@@ -1336,7 +1430,7 @@ class BroadcastCommunications(models.Model):
 
 class EmployeeCertifications(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="certifications")
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="certifications")
     name = models.CharField(max_length=150)
     certificate_number = models.CharField(max_length=100, blank=True, null=True)
     issue_date = models.DateField()
@@ -1357,7 +1451,7 @@ class EmployeeCertifications(models.Model):
 
 class EmployeeSkills(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="skills")
+    employee = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="skills")
 
     skill_name = models.CharField(max_length=100)
     level = models.CharField(
@@ -1393,7 +1487,7 @@ class DocumentAccessRule(models.Model):
     )
 
     target_employee = models.ForeignKey(
-        Employee,
+        "Employee",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -1450,7 +1544,7 @@ class DocumentVerification(models.Model):
     )
 
     employee = models.ForeignKey(
-        Employee,
+        "Employee",
         on_delete=models.CASCADE,
         related_name='doc_verifications'
     )
@@ -1516,3 +1610,275 @@ class DocumentVerification(models.Model):
 
     def __str__(self):
         return f"{self.employee.userName} - {self.document_type} - {self.status}"
+class BusinessUnit(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    name = models.CharField(max_length=100)
+    profit_center_code = models.CharField(max_length=50)
+
+    parent = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="business_units"
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+class Department(models.Model):
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    department_code = models.CharField(
+        max_length=30,
+        unique=True,
+        editable=False
+    )
+
+    organization = models.ForeignKey(
+        "Organization",
+        on_delete=models.CASCADE,
+        related_name="departments",
+        null=True,
+        blank=True
+    )
+
+    business_unit = models.ForeignKey(
+        "BusinessUnit",
+        on_delete=models.CASCADE,
+        related_name="departments",
+        null=True,
+        blank=True
+    )
+
+    name = models.CharField(max_length=100)
+
+    description = models.TextField(null=True, blank=True)
+
+    parent_department = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="child_departments"
+    )
+
+    reports_to_clevel = models.ForeignKey(
+        "CLevelSeat",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="departments"
+    )
+    department_head = models.ForeignKey(
+        "Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="headed_departments",
+        help_text="Level-2 Head of this Department"
+    )
+
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        if not self.department_code:
+            words = self.name.split()
+            if len(words) == 1:
+                prefix = words[0][:3].upper()
+            else:
+                prefix = "".join(word[0] for word in words).upper()
+
+            existing_count = Department.objects.filter(
+                organization=self.organization,
+                department_code__startswith=f"{prefix}-"
+            ).count()
+
+            self.department_code = f"{prefix}-{str(existing_count + 1).zfill(3)}"
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} ({self.department_code})"
+# models.py
+
+LEVEL_CHOICES = [
+    ("L0", "L0 – Business Owner"),
+    ("L1", "L1 – CEO"),
+    ("L2", "L2 – C-Level Executive"),
+    ("L3", "L3 – Department"),
+    ("L4", "L4 – Department Head"),
+    ("L5", "L5 – Manager"),
+    ("L6", "L6 – Team Lead"),
+    ("L7", "L7 – Individual Contributor"),
+]
+
+class Designation(models.Model):
+    """
+    Designation = WHAT role a person has
+    Created & managed by HR Head
+    Assigned to employees by Talent Manager
+    Used for Org Chart & role hierarchy
+    """
+
+    # ===================== CORE =====================
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+
+    name = models.CharField(
+        max_length=100,
+        help_text="Role name (e.g. Software Engineer, Manager, CEO)"
+    )
+
+    # ===================== TENANT =====================
+    parent = models.ForeignKey(
+        "Organization",
+        on_delete=models.CASCADE,
+        related_name="designations",
+        help_text="Organization this designation belongs to"
+    )
+
+    child = models.ForeignKey(
+        "ChildAccount",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="designations",
+        help_text="Optional child account / sub-organization"
+    )
+
+    # ===================== ORG CHART =====================
+    reports_to = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sub_designations",
+        help_text="Parent role in org hierarchy"
+    )
+
+    # ===================== ROLE METADATA =====================
+    job_family = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Engineering, HR, Finance, Leadership"
+    )
+    level = models.CharField(
+    max_length=9,
+    choices=LEVEL_CHOICES,
+    null=True,
+    blank=True
+)
+    band = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Compensation band (e.g. 6–10 LPA)"
+    )
+
+    # ===================== EXPECTATIONS =====================
+    job_description = models.TextField(null=True, blank=True)
+    kras = models.TextField(null=True, blank=True)
+    kpis = models.TextField(null=True, blank=True)
+
+    # ===================== STATUS =====================
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Soft delete / active flag"
+    )
+
+    # ===================== AUDIT =====================
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # ===================== CONSTRAINTS =====================
+    class Meta:
+        ordering = ["level", "name"]
+        unique_together = ("parent", "name")
+        verbose_name = "Designation"
+        verbose_name_plural = "Designations"
+
+    # ===================== STRING =====================
+    def __str__(self):
+        if self.level:
+            return f"{self.name} ({self.level})"
+        return self.name
+
+class Location(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    name = models.CharField(max_length=100)
+    address = models.TextField()
+
+    timezone_name = models.CharField(max_length=50)  # 👈 renamed
+
+    capacity = models.IntegerField(null=True, blank=True)
+
+    parent = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="locations"
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+class OrgSnapshot(models.Model):
+    SNAPSHOT_TYPES = (
+        ("AUTO", "Auto"),
+        ("MANUAL", "Manual"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="snapshots"
+    )
+
+    # Snapshot payloads (LIGHTWEIGHT & STABLE)
+    tree_data = models.JSONField(default=list)
+    matrix_data = models.JSONField(default=dict)
+    analytics_data = models.JSONField(default=dict)
+
+    snapshot_type = models.CharField(
+        max_length=10,
+        choices=SNAPSHOT_TYPES,
+        default="MANUAL"
+    )
+
+    triggered_by = models.ForeignKey(
+        Employee,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.organization.name} | {self.snapshot_type} | {self.created_at}"
